@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -44,6 +45,10 @@ def log_errors(error_sources: list[str]) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Aora — AI Clipping")
+    parser.add_argument("command", nargs="?", default="all", choices=["all", "rss", "web"], help="O comando a ser executado: 'all' (padrão), 'rss' ou 'web'")
+    args = parser.parse_args()
+
     load_dotenv()
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -76,17 +81,22 @@ def main() -> None:
     print(f"IDs já vistos: {len(seen_ids)} | Itens do dia já processados: {len(previous_items)}")
     print()
 
-    # 2. Fetch RSS feeds
-    print("Buscando feeds RSS...")
-    rss_items, rss_errors, updated_ids = fetch_all(SOURCES, seen_ids, lookback_hours, max_items)
-    print(f"\n{len(rss_items)} itens RSS novos | {len(rss_errors)} feeds com erro")
-    print()
+    rss_items, rss_errors = [], []
+    if args.command in ["all", "rss"]:
+        print("Buscando feeds RSS...")
+        rss_items, rss_errors, updated_ids = fetch_all(SOURCES, seen_ids, lookback_hours, max_items)
+        print(f"\n{len(rss_items)} itens RSS novos | {len(rss_errors)} feeds com erro")
+        print()
+    else:
+        updated_ids = seen_ids.copy()
 
     # 3. Scrape web sources
-    print("Scraping web...")
-    scraped_items, scraped_errors, updated_ids = scrape_all(SCRAPED_SOURCES, updated_ids, lookback_hours, max_items)
-    print(f"\n{len(scraped_items)} itens scraping novos | {len(scraped_errors)} fontes com erro")
-    print()
+    scraped_items, scraped_errors = [], []
+    if args.command in ["all", "web"]:
+        print("Scraping web...")
+        scraped_items, scraped_errors, updated_ids = scrape_all(SCRAPED_SOURCES, updated_ids, lookback_hours, max_items)
+        print(f"\n{len(scraped_items)} itens scraping novos | {len(scraped_errors)} fontes com erro")
+        print()
 
     new_items = rss_items + scraped_items
     error_sources = rss_errors + scraped_errors
