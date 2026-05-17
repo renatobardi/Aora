@@ -17,6 +17,7 @@ from scraper import scrape_all
 from scraped_sources import SCRAPED_SOURCES
 from sources import SOURCES
 from config_wizard import run_setup
+from version import VERSION
 from wiki_manager import run_ingest, run_lint, run_query
 
 SEEN_IDS_PATH = "seen_ids.json"
@@ -48,22 +49,23 @@ def log_errors(error_sources: list[str]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Aora — AI Clipping & Wiki Manager")
-    
+    parser.add_argument("-v", "--version", action="version", version=f"Aora v{VERSION}", help="Mostra a versão do programa")
+
     # Comandos principais
     subparsers = parser.add_subparsers(dest="command", help="Comando a ser executado")
-    
+
     # Antigos comandos de clipping
     subparsers.add_parser("all", help="Roda o pipeline completo de clipping (padrão)")
     subparsers.add_parser("rss", help="Roda apenas a coleta RSS")
     subparsers.add_parser("web", help="Roda apenas o Web Scraping")
     subparsers.add_parser("config", help="Abre o assistente de configuração")
-    
+
     # Novos comandos de Wiki
     ingest_parser = subparsers.add_parser("ingest", help="Ingere arquivos cruos para dentro da Wiki")
     ingest_parser.add_argument("file", nargs="?", help="Arquivo específico para ingerir (opcional)")
-    
+
     subparsers.add_parser("lint", help="Realiza uma auditoria de saúde na Wiki")
-    
+
     query_parser = subparsers.add_parser("query", help="Faz uma pergunta usando a Wiki como base de conhecimento")
     query_parser.add_argument("question", nargs="+", help="A pergunta a ser feita")
 
@@ -83,7 +85,7 @@ def main() -> None:
     if args.command in ["ingest", "lint", "query"]:
         print("\n" + "="*50)
         print("  █▀█ █▀█ █▀█ █▀█  :: Wiki Manager")
-        print("  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping")
+        print(f"  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping v{VERSION}")
         print("="*50 + "\n")
 
         if args.command == "ingest":
@@ -121,7 +123,7 @@ def main() -> None:
 
     print("\n" + "="*50)
     print("  █▀█ █▀█ █▀█ █▀█  :: Hoje: " + today.isoformat())
-    print("  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping")
+    print(f"  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping v{VERSION}")
     print("="*50)
     print(f"Janela: {lookback_hours}h | Max por fonte: {max_items}")
     print(f"Saída: {output_path}")
