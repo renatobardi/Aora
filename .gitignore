@@ -1,0 +1,8 @@
+.env
+seen_ids.json
+.cache_*.json
+feed_errors.log
+output/*.md
+__pycache__/
+*.pyc
+.venv/
