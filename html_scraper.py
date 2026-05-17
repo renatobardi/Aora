@@ -98,7 +98,7 @@ def scrape_html(
                     title = _extract_title(r2.text, url)
                     content = trafilatura.extract(r2.text) or ""
 
-                if not content:
+                if not content or len(content) < 100:
                     continue
 
                 items.append({

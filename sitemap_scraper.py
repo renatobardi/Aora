@@ -36,9 +36,7 @@ def _parse_xml(text: str, content: bytes, use_lxml: bool) -> ET.Element:
     return ET.fromstring(text)
 
 
-def _findall(root, tag: str, use_lxml: bool) -> list:
-    if use_lxml:
-        return root.findall(f"{{{NS}}}{tag}")
+def _findall(root, tag: str) -> list:
     return root.findall(f"{{{NS}}}{tag}")
 
 
@@ -53,19 +51,17 @@ def _fetch_sitemap_entries(url: str, use_lxml: bool = False) -> tuple[list, bool
         r = c.get(url, headers=HEADERS)
     r.raise_for_status()
     root = _parse_xml(r.text, r.content, use_lxml)
-    indexes = _findall(root, "sitemap", use_lxml)
+    indexes = _findall(root, "sitemap")
     if indexes:
         return [((_findtext(i, "loc") or ""), None) for i in indexes if _findtext(i, "loc")], True
-    urls = _findall(root, "url", use_lxml)
+    urls = _findall(root, "url")
     return [((_findtext(u, "loc") or ""), _findtext(u, "lastmod")) for u in urls if _findtext(u, "loc")], False
 
 
-def _get_date_from_page(url: str) -> datetime | None:
+def _get_date_from_html(html: str) -> datetime | None:
     try:
         import htmldate
-        with httpx.Client(timeout=12, follow_redirects=True) as c:
-            r = c.get(url, headers=HEADERS)
-        found = htmldate.find_date(r.text, extensive_search=True)
+        found = htmldate.find_date(html, extensive_search=True)
         if found:
             return datetime.fromisoformat(found).replace(tzinfo=timezone.utc)
     except Exception:
@@ -107,13 +103,6 @@ def scrape_sitemap(
         # Fetch top-level sitemap
         entries, is_index = _fetch_sitemap_entries(source["sitemap_url"], use_lxml)
 
-        # Some sitemaps omit https:// — prepend it when missing
-        if fix_protocol:
-            entries = [
-                (url if url.startswith("http") else f"https://{url}", lm)
-                for url, lm in entries
-            ]
-
         # If sitemap index, recurse into matching sub-sitemaps
         if is_index:
             all_entries: list[tuple[str, str | None]] = []
@@ -128,6 +117,13 @@ def scrape_sitemap(
                     continue
             entries = all_entries
 
+        # Some sitemaps omit https:// — prepend it when missing (applied after index expansion)
+        if fix_protocol:
+            entries = [
+                (url if url.startswith("http") else f"https://{url}", lm)
+                for url, lm in entries
+            ]
+
         items: list[dict] = []
         for url, lastmod in entries:
             if len(items) >= max_items:
@@ -137,19 +133,22 @@ def scrape_sitemap(
             if url in seen_ids:
                 continue
 
-            # Date filtering
-            if fetch_dates or lastmod is None:
-                pub_dt = _get_date_from_page(url)
-            else:
+            # Date filtering when lastmod is absent — defer to after page fetch
+            if not fetch_dates and lastmod is not None:
                 pub_dt = _parse_date(lastmod)
+                if pub_dt and pub_dt < cutoff:
+                    continue
 
-            if pub_dt and pub_dt < cutoff:
-                continue
-
-            # Fetch article content
+            # Fetch article content (also used for date extraction when needed)
             try:
                 with httpx.Client(timeout=15, follow_redirects=True) as c:
                     r = c.get(url, headers=HEADERS)
+
+                if fetch_dates or lastmod is None:
+                    pub_dt = _get_date_from_html(r.text)
+                    if pub_dt and pub_dt < cutoff:
+                        continue
+
                 result = trafilatura.bare_extraction(
                     r.text, include_comments=False, include_tables=False
                 )

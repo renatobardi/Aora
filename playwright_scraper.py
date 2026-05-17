@@ -60,67 +60,68 @@ def scrape_playwright(
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            page = browser.new_page(extra_http_headers={"User-Agent": HEADERS["User-Agent"]})
+            try:
+                page = browser.new_page(extra_http_headers={"User-Agent": HEADERS["User-Agent"]})
 
-            # Fetch listing page
-            page.goto(source["listing_url"], wait_until="networkidle", timeout=30000)
-            time.sleep(2)
+                # Fetch listing page
+                page.goto(source["listing_url"], wait_until="networkidle", timeout=30000)
+                time.sleep(2)
 
-            # Extract all links
-            hrefs = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
-            seen_hrefs: set[str] = set()
-            candidate_urls: list[str] = []
-            for href in hrefs:
-                if not link_re.search(href):
-                    continue
-                parsed = urlparse(href)
-                clean = parsed._replace(query="", fragment="").geturl().rstrip("/")
-                if clean not in seen_hrefs:
-                    seen_hrefs.add(clean)
-                    candidate_urls.append(clean)
+                # Extract all links
+                hrefs = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
+                seen_hrefs: set[str] = set()
+                candidate_urls: list[str] = []
+                for href in hrefs:
+                    if not link_re.search(href):
+                        continue
+                    parsed = urlparse(href)
+                    clean = parsed._replace(query="", fragment="").geturl().rstrip("/")
+                    if clean not in seen_hrefs:
+                        seen_hrefs.add(clean)
+                        candidate_urls.append(clean)
 
-            items: list[dict] = []
-            for url in candidate_urls:
-                if len(items) >= max_items:
-                    break
-                if url in seen_ids:
-                    continue
-
-                try:
-                    page.goto(url, wait_until="networkidle", timeout=20000)
-                    time.sleep(1)
-                    html = page.content()
-
-                    pub_dt = _get_date_from_html(html)
-                    if pub_dt and pub_dt < cutoff:
+                items: list[dict] = []
+                for url in candidate_urls:
+                    if len(items) >= max_items:
+                        break
+                    if url in seen_ids:
                         continue
 
-                    result = trafilatura.bare_extraction(
-                        html, include_comments=False, include_tables=False
-                    )
-                    if result:
-                        title = _clean_title(result.title) if result.title else _extract_title(html, url)
-                        content = result.text or ""
-                    else:
-                        title = _extract_title(html, url)
-                        content = trafilatura.extract(html) or ""
+                    try:
+                        page.goto(url, wait_until="networkidle", timeout=20000)
+                        time.sleep(1)
+                        html = page.content()
 
-                    if not content:
+                        pub_dt = _get_date_from_html(html)
+                        if pub_dt and pub_dt < cutoff:
+                            continue
+
+                        result = trafilatura.bare_extraction(
+                            html, include_comments=False, include_tables=False
+                        )
+                        if result:
+                            title = _clean_title(result.title) if result.title else _extract_title(html, url)
+                            content = result.text or ""
+                        else:
+                            title = _extract_title(html, url)
+                            content = trafilatura.extract(html) or ""
+
+                        if not content or len(content) < 100:
+                            continue
+
+                        items.append({
+                            "id": url,
+                            "title": title,
+                            "url": url,
+                            "published": pub_dt.strftime("%a, %d %b %Y %H:%M:%S +0000") if pub_dt else "",
+                            "source_name": source["name"],
+                            "category": source["category"],
+                            "content": content[:4000],
+                        })
+                    except Exception:
                         continue
-
-                    items.append({
-                        "id": url,
-                        "title": title,
-                        "url": url,
-                        "published": pub_dt.strftime("%a, %d %b %Y %H:%M:%S +0000") if pub_dt else "",
-                        "source_name": source["name"],
-                        "category": source["category"],
-                        "content": content[:4000],
-                    })
-                except Exception:
-                    continue
-
-            browser.close()
+            finally:
+                browser.close()
 
         return items, None
 
