@@ -95,14 +95,50 @@ def run_setup() -> None:
         else:
             env_vars["OUTPUT_DIR"] = current_dir
 
+        # 5. Lookback Hours
+        print("\n5. Janela de Busca (em horas)")
+        current_lookback = env_vars.get("LOOKBACK_HOURS", "72")
+        print(f"   Quão antigas podem ser as notícias? [Máx: 240]")
+        new_lookback = input(f"   Digite as horas (ou Enter para {current_lookback}): ").strip()
+        if new_lookback:
+            try:
+                val = int(new_lookback)
+                if val > 240:
+                    val = 240
+                elif val < 1:
+                    val = 1
+                env_vars["LOOKBACK_HOURS"] = str(val)
+            except ValueError:
+                env_vars["LOOKBACK_HOURS"] = current_lookback
+        else:
+            env_vars["LOOKBACK_HOURS"] = current_lookback
+
+        # 6. Max Items Per Source
+        print("\n6. Limite de Notícias por Fonte")
+        current_max = env_vars.get("MAX_ITEMS_PER_SOURCE", "5")
+        print(f"   Máximo de itens por feed/site para evitar spam [Máx: 99]")
+        new_max = input(f"   Digite o limite (ou Enter para {current_max}): ").strip()
+        if new_max:
+            try:
+                val = int(new_max)
+                if val > 99:
+                    val = 99
+                elif val < 1:
+                    val = 1
+                env_vars["MAX_ITEMS_PER_SOURCE"] = str(val)
+            except ValueError:
+                env_vars["MAX_ITEMS_PER_SOURCE"] = current_max
+        else:
+            env_vars["MAX_ITEMS_PER_SOURCE"] = current_max
+
         # Save to .env
         with open(env_path, "w") as f:
             for k, v in env_vars.items():
                 f.write(f"{k}={v}\n")
         print(f"\n✅ Configurações salvas em {env_path.absolute()}")
 
-        # 5. Global command
-        print("\n5. Instalação Global")
+        # 7. Global command
+        print("\n7. Instalação Global")
         setup_global = input("   Deseja configurar o comando 'aora' para funcionar em qualquer pasta? (s/N): ").strip().lower()
         
         if setup_global in ['s', 'sim', 'y', 'yes']:
