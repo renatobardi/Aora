@@ -70,68 +70,68 @@ def run_setup() -> None:
             env_vars["PROCESS_MODE"] = "sync"
 
         # 3. API Key
-    print("\n3. Chave de API (Anthropic)")
-    current_key = env_vars.get("ANTHROPIC_API_KEY", "")
-    if current_key:
-        masked = current_key[:7] + "..." + current_key[-4:]
-        print(f"   Chave atual encontrada: {masked}")
-        new_key = input("   Cole a nova chave (ou pressione Enter para manter a atual): ").strip()
-        if new_key:
-            env_vars["ANTHROPIC_API_KEY"] = new_key
-    else:
-        new_key = ""
-        while not new_key:
-            new_key = input("   Cole sua chave da Anthropic (sk-ant-...): ").strip()
-        env_vars["ANTHROPIC_API_KEY"] = new_key
-
-    # 4. Output Directory
-    print("\n4. Pasta para salvar os resumos")
-    current_dir = env_vars.get("OUTPUT_DIR", "./output")
-    print(f"   Caminho atual: {current_dir}")
-    print("   Dica: Você pode colocar o caminho absoluto da sua pasta do Obsidian.")
-    new_dir = input("   Digite o novo caminho (ou pressione Enter para manter): ").strip()
-    if new_dir:
-        env_vars["OUTPUT_DIR"] = new_dir
-    else:
-        env_vars["OUTPUT_DIR"] = current_dir
-
-    # Save to .env
-    with open(env_path, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
-    print(f"\n✅ Configurações salvas em {env_path.absolute()}")
-
-    # 5. Global command
-    print("\n5. Instalação Global")
-    setup_global = input("   Deseja configurar o comando 'aora' para funcionar em qualquer pasta? (s/N): ").strip().lower()
-    
-    if setup_global in ['s', 'sim', 'y', 'yes']:
-        project_dir = Path(__file__).parent.absolute()
-        alias_cmd = f'alias aora="{project_dir}/aora"'
-        
-        shell = os.environ.get("SHELL", "")
-        rc_file = None
-        if "zsh" in shell:
-            rc_file = Path.home() / ".zshrc"
-        elif "bash" in shell:
-            rc_file = Path.home() / ".bashrc"
-            
-        if rc_file:
-            # Check if alias already exists
-            content = ""
-            if rc_file.exists():
-                with open(rc_file, "r") as f:
-                    content = f.read()
-            
-            if alias_cmd in content:
-                print("   O alias já está configurado no seu terminal!")
-            else:
-                with open(rc_file, "a") as f:
-                    f.write(f"\n# Alias para o Aora\n{alias_cmd}\n")
-                print(f"   ✅ Comando configurado no {rc_file.name}!")
-                print("   ⚠️  ATENÇÃO: Para usar agora mesmo, rode: source " + str(rc_file))
+        print("\n3. Chave de API (Anthropic)")
+        current_key = env_vars.get("ANTHROPIC_API_KEY", "")
+        if current_key:
+            masked = current_key[:7] + "..." + current_key[-4:]
+            print(f"   Chave atual encontrada: {masked}")
+            new_key = input("   Cole a nova chave (ou pressione Enter para manter a atual): ").strip()
+            if new_key:
+                env_vars["ANTHROPIC_API_KEY"] = new_key
         else:
-            print("   Não foi possível detectar o seu terminal automaticamente (zsh ou bash).")
+            new_key = ""
+            while not new_key:
+                new_key = input("   Cole sua chave da Anthropic (sk-ant-...): ").strip()
+            env_vars["ANTHROPIC_API_KEY"] = new_key
+
+        # 4. Output Directory
+        print("\n4. Pasta para salvar os resumos")
+        current_dir = env_vars.get("OUTPUT_DIR", "./output")
+        print(f"   Caminho atual: {current_dir}")
+        print("   Dica: Você pode colocar o caminho absoluto da sua pasta do Obsidian.")
+        new_dir = input("   Digite o novo caminho (ou pressione Enter para manter): ").strip()
+        if new_dir:
+            env_vars["OUTPUT_DIR"] = new_dir
+        else:
+            env_vars["OUTPUT_DIR"] = current_dir
+
+        # Save to .env
+        with open(env_path, "w") as f:
+            for k, v in env_vars.items():
+                f.write(f"{k}={v}\n")
+        print(f"\n✅ Configurações salvas em {env_path.absolute()}")
+
+        # 5. Global command
+        print("\n5. Instalação Global")
+        setup_global = input("   Deseja configurar o comando 'aora' para funcionar em qualquer pasta? (s/N): ").strip().lower()
+        
+        if setup_global in ['s', 'sim', 'y', 'yes']:
+            project_dir = Path(__file__).parent.absolute()
+            alias_cmd = f'alias aora="{project_dir}/aora"'
+            
+            shell = os.environ.get("SHELL", "")
+            rc_file = None
+            if "zsh" in shell:
+                rc_file = Path.home() / ".zshrc"
+            elif "bash" in shell:
+                rc_file = Path.home() / ".bashrc"
+                
+            if rc_file:
+                # Check if alias already exists
+                content = ""
+                if rc_file.exists():
+                    with open(rc_file, "r") as f:
+                        content = f.read()
+                
+                if alias_cmd in content:
+                    print("   O alias já está configurado no seu terminal!")
+                else:
+                    with open(rc_file, "a") as f:
+                        f.write(f"\n# Alias para o Aora\n{alias_cmd}\n")
+                    print(f"   ✅ Comando configurado no {rc_file.name}!")
+                    print("   ⚠️  ATENÇÃO: Para usar agora mesmo, rode: source " + str(rc_file))
+        else:
+                print("   Não foi possível detectar o seu terminal automaticamente (zsh ou bash).")
 
         print("\n🎉 Configuração concluída! Você já pode rodar o aora.")
         print("="*50 + "\n")
