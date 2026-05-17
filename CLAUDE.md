@@ -76,6 +76,8 @@ Add an entry to `SCRAPED_SOURCES` in `scraped_sources.py`. Required keys by meth
 
 Optional sitemap keys: `parser: "lxml"` (invalid XML), `fetch_dates: True` (no `lastmod`), `fix_protocol: True` (missing `https://`), `sub_pattern` (filter sub-sitemaps by substring).
 
+Optional playwright key: `wait_until` — Playwright load event (`"networkidle"` default; use `"domcontentloaded"` for SPAs that never stop making requests).
+
 ## Key behaviors
 
 - **Versioned output**: each run writes a new `YYYY-MM-DD-vN.md`; items from previous runs today are loaded from `.cache_YYYY-MM-DD.json` and merged

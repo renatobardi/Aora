@@ -85,7 +85,6 @@ SCRAPED_SOURCES = [
         "url_pattern": r"runwayml\.com/research/[a-z0-9]+(?:-[a-z0-9]+){2,}$",  # exclude single-word section pages
     },
 
-    # ── SITEMAP (continued) ───────────────────────────────────────────────────
     {
         "name": "Novita AI", "category": "infra-data", "method": "sitemap",
         "sitemap_url": "https://blogs.novita.ai/sitemap.xml",

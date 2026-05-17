@@ -58,7 +58,10 @@ def scrape_playwright(
         cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=lookback_hours)
         link_re = re.compile(source["link_pattern"])
 
+        _VALID_WAIT = {"load", "domcontentloaded", "networkidle", "commit"}
         wait_until = source.get("wait_until", "networkidle")
+        if wait_until not in _VALID_WAIT:
+            return [], f"wait_until inválido: '{wait_until}' — use um de {sorted(_VALID_WAIT)}"
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -90,7 +93,7 @@ def scrape_playwright(
                         continue
 
                     try:
-                        page.goto(url, wait_until="networkidle", timeout=20000)
+                        page.goto(url, wait_until=wait_until, timeout=20000)
                         time.sleep(1)
                         html = page.content()
 
