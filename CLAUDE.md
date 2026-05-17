@@ -83,7 +83,7 @@ Optional playwright key: `wait_until` — Playwright load event (`"networkidle"`
 - **Versioned output**: each run writes a new `YYYY-MM-DD-vN.md`; items from previous runs today are loaded from `.cache_YYYY-MM-DD.json` and merged
 - **Idempotent**: `seen_ids.json` tracks processed URLs/entry IDs — re-running skips already-seen items
 - **Fault-tolerant**: each source is wrapped in try/except; failures are logged to `feed_errors.log` and do not block the pipeline
-- **Lookback window**: `LOOKBACK_HOURS` env var (default 48h)
+- **Lookback window**: `LOOKBACK_HOURS` env var (default 72h)
 - **Model**: `claude-haiku-4-5-20251001` with `cache_control: ephemeral`
 
 ## Runtime files (generated, not committed)
@@ -101,5 +101,5 @@ Optional playwright key: `wait_until` — Playwright load event (`"networkidle"`
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Required |
 | `OUTPUT_DIR` | `./output` | Absolute path to Obsidian vault works too |
-| `LOOKBACK_HOURS` | `48` | How far back to look for new items |
+| `LOOKBACK_HOURS` | `72` | How far back to look for new items |
 | `MAX_ITEMS_PER_SOURCE` | `5` | Cap per source per run |
