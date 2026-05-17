@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**AI Clipping** — Fetches content from ~50 AI sources (RSS feeds + scraped websites), summarizes each item with Claude Haiku (structured JSON: TL;DR + why it matters + tags), and generates a daily Markdown file ready for Obsidian Dataview.
+**Aora** — Fetches content from ~50 AI sources (RSS feeds + scraped websites), summarizes each item with Claude Haiku (structured JSON: TL;DR + why it matters + tags), and generates a daily Markdown file ready for Obsidian Dataview. A Wiki Manager layer (in progress) lets you ingest, lint, and query the Obsidian vault via Claude Code.
 
 ## Commands
 
@@ -13,10 +13,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pip install -r requirements.txt
 playwright install chromium     # required for JS-heavy scrapers
 
-cp .env.example .env            # then fill in ANTHROPIC_API_KEY
+python main.py config           # interactive setup wizard (creates/updates .env)
 
-# Run
-python main.py                  # fetches all sources, processes with LLM, writes output/YYYY-MM-DD-vN.md
+# Run — clipping pipeline
+python main.py                  # full pipeline (RSS + web scraping + LLM)
+python main.py all              # same as above
+python main.py rss              # RSS only
+python main.py web              # web scraping only
+
+# Wiki Manager (delegates to claude -p "..." internally)
+python main.py ingest <file>    # ingest a raw clipping file into the wiki
+python main.py lint             # audit wiki for contradictions and orphan pages
+python main.py query <question> # query the wiki as a knowledge base
+
+# Convenience wrapper (runs from any directory)
+./aora [subcommand]
 
 # Debug a single RSS feed
 python -c "import feedparser; f = feedparser.parse('https://huggingface.co/blog/feed.xml'); print(len(f.entries), 'entries')"
@@ -32,16 +43,16 @@ print(items, errors)
 
 ## Architecture
 
-The pipeline is fully sequential and single-process:
-
 ```
-main.py
-  ├── fetcher.py        (RSS sources from sources.py)
-  └── scraper.py        (web sources from scraped_sources.py)
+main.py  (subcommand router + clipping orchestrator)
+  ├── config_wizard.py  (interactive .env setup)
+  ├── wiki_manager.py   (ingest / lint / query — delegates to claude -p)
+  ├── fetcher.py        (RSS via sources.py)
+  └── scraper.py        (web via scraped_sources.py)
        ├── sitemap_scraper.py
        ├── html_scraper.py
        └── playwright_scraper.py
-  └── processor.py      (Claude Haiku LLM enrichment)
+  └── processor.py      (Claude Haiku LLM enrichment — sync or Batch API)
   └── renderer.py       (Markdown output)
 ```
 
@@ -52,8 +63,10 @@ main.py
 - **`sitemap_scraper.py`** — Fetches XML sitemaps (handles sitemap indexes, `lxml` fallback, `fetch_dates`, `fix_protocol`, `sub_pattern` quirks); extracts content with `trafilatura`
 - **`html_scraper.py`** — Fetches static listing pages with `httpx`+`BeautifulSoup`, follows matched links, extracts content with `trafilatura`
 - **`playwright_scraper.py`** — Uses headless Chromium for JS-rendered listing pages; same content extraction as the others
-- **`processor.py`** — Claude Haiku API with **prompt caching** (`cache_control: ephemeral` on the system prompt, reused across all items → ~90% cached-token savings); JSON parsing with fallback
+- **`processor.py`** — Claude Haiku via sync (`messages.create` with `cache_control: ephemeral`) or async (Batch API, 50% discount, polling loop). Model and mode are read from env vars at call time.
 - **`renderer.py`** — Assembles YAML frontmatter + per-item markdown blocks, grouped by `CATEGORY_ORDER`
+- **`config_wizard.py`** — Interactive terminal wizard that writes/updates `.env`; called by `main.py config` or auto-triggered when `ANTHROPIC_API_KEY` is missing
+- **`wiki_manager.py`** — Wiki Manager: `run_ingest` detects unprocessed `raw/*.md` files by diffing against `wiki/log.md` (supports both individual and batch log formats), then calls `claude -p` autonomously per file; `run_lint` audits the vault; `run_query` answers questions with wiki citations
 - **`main.py`** — Orchestrates all stages; merges today's new items with `.cache_YYYY-MM-DD.json`; writes versioned output (`YYYY-MM-DD-vN.md`)
 
 ## Item shape
@@ -83,8 +96,8 @@ Optional playwright key: `wait_until` — Playwright load event (`"networkidle"`
 - **Versioned output**: each run writes a new `YYYY-MM-DD-vN.md`; items from previous runs today are loaded from `.cache_YYYY-MM-DD.json` and merged
 - **Idempotent**: `seen_ids.json` tracks processed URLs/entry IDs — re-running skips already-seen items
 - **Fault-tolerant**: each source is wrapped in try/except; failures are logged to `feed_errors.log` and do not block the pipeline
-- **Lookback window**: `LOOKBACK_HOURS` env var (default 72h)
-- **Model**: `claude-haiku-4-5-20251001` with `cache_control: ephemeral`
+- **Sync vs async**: `PROCESS_MODE=sync` (default) uses streaming Haiku with prompt caching; `PROCESS_MODE=async` uses the Batch API (50% cheaper, minutes of latency)
+- **Lookback window**: controlled by `LOOKBACK_HOURS` env var (default 72h)
 
 ## Runtime files (generated, not committed)
 
@@ -100,6 +113,8 @@ Optional playwright key: `wait_until` — Playwright load event (`"networkidle"`
 | Variable | Default | Description |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Required |
-| `OUTPUT_DIR` | `./output` | Absolute path to Obsidian vault works too |
-| `LOOKBACK_HOURS` | `72` | How far back to look for new items |
-| `MAX_ITEMS_PER_SOURCE` | `5` | Cap per source per run |
+| `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Model used for LLM enrichment |
+| `PROCESS_MODE` | `sync` | `sync` (prompt caching) or `async` (Batch API, 50% cheaper) |
+| `OUTPUT_DIR` | `./output` | Output directory; set to Obsidian vault path for direct integration |
+| `LOOKBACK_HOURS` | `72` | How far back to look for new items (max 240) |
+| `MAX_ITEMS_PER_SOURCE` | `5` | Cap per source per run (max 99) |

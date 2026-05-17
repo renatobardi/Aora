@@ -2,8 +2,7 @@
 seen_ids.json
 .cache_*.json
 feed_errors.log
-output/*.md
+output/
 __pycache__/
 *.pyc
 .venv/
-output/

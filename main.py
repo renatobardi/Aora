@@ -18,6 +18,7 @@ from scraped_sources import SCRAPED_SOURCES
 from sources import SOURCES
 from config_wizard import run_setup
 from version import VERSION
+from wiki_manager import run_ingest, run_lint, run_query
 
 SEEN_IDS_PATH = "seen_ids.json"
 ERRORS_LOG_PATH = "feed_errors.log"
@@ -47,16 +48,54 @@ def log_errors(error_sources: list[str]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Aora — AI Clipping")
-    parser.add_argument("command", nargs="?", default="all", choices=["all", "rss", "web", "config"], help="O comando a ser executado: 'all' (padrão), 'rss', 'web' ou 'config'")
+    parser = argparse.ArgumentParser(description="Aora — AI Clipping & Wiki Manager")
     parser.add_argument("-v", "--version", action="version", version=f"Aora v{VERSION}", help="Mostra a versão do programa")
+
+    # Comandos principais
+    subparsers = parser.add_subparsers(dest="command", help="Comando a ser executado")
+
+    # Antigos comandos de clipping
+    subparsers.add_parser("all", help="Roda o pipeline completo de clipping (padrão)")
+    subparsers.add_parser("rss", help="Roda apenas a coleta RSS")
+    subparsers.add_parser("web", help="Roda apenas o Web Scraping")
+    subparsers.add_parser("config", help="Abre o assistente de configuração")
+
+    # Novos comandos de Wiki
+    ingest_parser = subparsers.add_parser("ingest", help="Ingere arquivos cruos para dentro da Wiki")
+    ingest_parser.add_argument("file", nargs="?", help="Arquivo específico para ingerir (opcional)")
+
+    subparsers.add_parser("lint", help="Realiza uma auditoria de saúde na Wiki")
+
+    query_parser = subparsers.add_parser("query", help="Faz uma pergunta usando a Wiki como base de conhecimento")
+    query_parser.add_argument("question", nargs="+", help="A pergunta a ser feita")
+
     args = parser.parse_args()
+    
+    # Compatibilidade com o formato antigo que não usava subparser
+    if args.command is None:
+        args.command = "all"
 
     if args.command == "config":
         run_setup()
         sys.exit(0)
 
     load_dotenv()
+
+    # Wiki commands use claude -p (own auth) — route before API key check
+    if args.command in ["ingest", "lint", "query"]:
+        print("\n" + "="*50)
+        print("  █▀█ █▀█ █▀█ █▀█  :: Wiki Manager")
+        print(f"  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping v{VERSION}")
+        print("="*50 + "\n")
+
+        if args.command == "ingest":
+            run_ingest(args.file)
+        elif args.command == "lint":
+            run_lint()
+        elif args.command == "query":
+            run_query(" ".join(args.question))
+
+        sys.exit(0)
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
