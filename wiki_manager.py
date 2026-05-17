@@ -27,22 +27,36 @@ def get_unprocessed_raw_files(vault_path: Path) -> list[Path]:
         return sorted(all_raws)
 
     log_content = log_file.read_text()
-    processed_files = re.findall(r"Source:\s*`?raw/([^`\n]+)`?", log_content)
 
-    unprocessed = [f for f in all_raws if f.name not in processed_files]
+    # Pattern 1: individual ingest — Source: `raw/filename.md`
+    processed: set[str] = set(re.findall(r"Source:\s*`?raw/([^`\n]+)`?", log_content))
+
+    # Pattern 2: batch ingest — Sources ingested: N documentos (Title1, Title2, ...)
+    for batch_list in re.findall(r"Sources ingested:[^(]*\(([^)]+)\)", log_content):
+        for title in batch_list.split(","):
+            clean = re.sub(r"\s*—.*$", "", title.strip())
+            if clean:
+                processed.add(clean + ".md")
+
+    unprocessed = [f for f in all_raws if f.name not in processed]
     return sorted(unprocessed)
 
 
-def _run_claude(prompt: str, vault_path: Path) -> int:
-    result = subprocess.run(
-        [
-            "claude", "-p", prompt,
-            "--allowedTools", "Read,Write,Edit,Bash,Glob,Grep",
-        ],
-        cwd=str(vault_path),
-        check=False,
-    )
-    return result.returncode
+def _run_claude(prompt: str, vault_path: Path, timeout: int = 600) -> int:
+    try:
+        result = subprocess.run(
+            [
+                "claude", "-p", prompt,
+                "--allowedTools", "Read,Write,Edit,Bash,Glob,Grep",
+            ],
+            cwd=str(vault_path),
+            check=False,
+            timeout=timeout,
+        )
+        return result.returncode
+    except subprocess.TimeoutExpired:
+        print(f"  [ERRO] Timeout: claude não respondeu em {timeout // 60} minutos.")
+        return 1
 
 
 def run_ingest(file_path: str | None = None) -> None:
@@ -71,7 +85,10 @@ def run_ingest(file_path: str | None = None) -> None:
     print()
 
     for i, raw_file in enumerate(files_to_process, 1):
-        rel_path = raw_file.relative_to(vault_path)
+        try:
+            rel_path = raw_file.relative_to(vault_path)
+        except ValueError:
+            rel_path = raw_file
         print(f"  [{i}/{len(files_to_process)}] Ingerindo: {raw_file.name}")
 
         prompt = f"""\

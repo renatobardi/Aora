@@ -17,6 +17,7 @@ from scraper import scrape_all
 from scraped_sources import SCRAPED_SOURCES
 from sources import SOURCES
 from config_wizard import run_setup
+from wiki_manager import run_ingest, run_lint, run_query
 
 SEEN_IDS_PATH = "seen_ids.json"
 ERRORS_LOG_PATH = "feed_errors.log"
@@ -78,20 +79,8 @@ def main() -> None:
 
     load_dotenv()
 
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        print("Aora não configurado. Iniciando assistente...")
-        run_setup()
-        load_dotenv(override=True)
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            print("ERRO: Configuração cancelada ou ANTHROPIC_API_KEY não definida.")
-            sys.exit(1)
-
-    # Roteamento dos novos comandos do Wiki
+    # Wiki commands use claude -p (own auth) — route before API key check
     if args.command in ["ingest", "lint", "query"]:
-        from wiki_manager import run_ingest, run_lint, run_query
-
         print("\n" + "="*50)
         print("  █▀█ █▀█ █▀█ █▀█  :: Wiki Manager")
         print("  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping")
@@ -105,6 +94,16 @@ def main() -> None:
             run_query(" ".join(args.question))
 
         sys.exit(0)
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("Aora não configurado. Iniciando assistente...")
+        run_setup()
+        load_dotenv(override=True)
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            print("ERRO: Configuração cancelada ou ANTHROPIC_API_KEY não definida.")
+            sys.exit(1)
 
     output_dir = Path(os.getenv("OUTPUT_DIR", "./output"))
     lookback_hours = int(os.getenv("LOOKBACK_HOURS", "72"))

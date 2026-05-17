@@ -66,7 +66,7 @@ main.py  (subcommand router + clipping orchestrator)
 - **`processor.py`** — Claude Haiku via sync (`messages.create` with `cache_control: ephemeral`) or async (Batch API, 50% discount, polling loop). Model and mode are read from env vars at call time.
 - **`renderer.py`** — Assembles YAML frontmatter + per-item markdown blocks, grouped by `CATEGORY_ORDER`
 - **`config_wizard.py`** — Interactive terminal wizard that writes/updates `.env`; called by `main.py config` or auto-triggered when `ANTHROPIC_API_KEY` is missing
-- **`wiki_manager.py`** — Skeleton for Wiki Manager commands; `run_ingest` detects unprocessed `raw/*.md` files by diffing against `wiki/log.md`; `ingest`/`lint`/`query` shell out to `claude -p "..."` (work in progress)
+- **`wiki_manager.py`** — Wiki Manager: `run_ingest` detects unprocessed `raw/*.md` files by diffing against `wiki/log.md` (supports both individual and batch log formats), then calls `claude -p` autonomously per file; `run_lint` audits the vault; `run_query` answers questions with wiki citations
 - **`main.py`** — Orchestrates all stages; merges today's new items with `.cache_YYYY-MM-DD.json`; writes versioned output (`YYYY-MM-DD-vN.md`)
 
 ## Item shape
