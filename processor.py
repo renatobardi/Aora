@@ -177,7 +177,7 @@ def process_all(
         time.sleep(10)
 
     # Processar resultados
-    print("  Batch concluído! Baixando resultados...")
+    print("  Batch concluído! Baixando resultados... [◈]")
     results = list(client.messages.batches.results(batch.id))
     
     enriched: list[dict] = []

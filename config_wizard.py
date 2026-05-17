@@ -4,7 +4,8 @@ from pathlib import Path
 
 def run_setup() -> None:
     print("\n" + "="*50)
-    print("✨ Bem-vindo ao assistente de configuração do Aora ✨")
+    print("  █▀█ █▀█ █▀█ █▀█  :: Setup Wizard")
+    print("  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping")
     print("="*50 + "\n")
 
     # Load existing env vars if any
