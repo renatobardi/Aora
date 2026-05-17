@@ -134,7 +134,10 @@ def run_setup() -> None:
         # Save to .env
         with open(env_path, "w") as f:
             for k, v in env_vars.items():
-                f.write(f"{k}={v}\n")
+                if " " in v and not (v.startswith('"') and v.endswith('"')):
+                    f.write(f'{k}="{v}"\n')
+                else:
+                    f.write(f"{k}={v}\n")
         print(f"\n✅ Configurações salvas em {env_path.absolute()}")
 
         # 7. Global command
@@ -155,7 +158,8 @@ def run_setup() -> None:
             if rc_file:
                 # Check if alias already exists
                 content = ""
-                if rc_file.exists():
+                is_new_file = not rc_file.exists()
+                if not is_new_file:
                     with open(rc_file, "r") as f:
                         content = f.read()
                 
@@ -164,7 +168,11 @@ def run_setup() -> None:
                 else:
                     with open(rc_file, "a") as f:
                         f.write(f"\n# Alias para o Aora\n{alias_cmd}\n")
-                    print(f"   ✅ Comando configurado no {rc_file.name}!")
+                    
+                    if is_new_file:
+                        print(f"   ✅ Arquivo {rc_file.name} criado e comando configurado!")
+                    else:
+                        print(f"   ✅ Comando configurado no {rc_file.name}!")
                     print("   ⚠️  ATENÇÃO: Para usar agora mesmo, rode: source " + str(rc_file))
         else:
                 print("   Não foi possível detectar o seu terminal automaticamente (zsh ou bash).")
