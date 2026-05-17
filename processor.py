@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 
 import anthropic
 
-MODEL = "claude-haiku-4-5-20251001"
+MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 MAX_TOKENS = 300
 
 VALID_TAGS = {
@@ -92,11 +93,28 @@ def process_item(item: dict, client: anthropic.Anthropic) -> dict:
 
 
 def estimate_cost(input_tokens: int, output_tokens: int, cache_read_tokens: int) -> float:
-    # Haiku 4.5 pricing (USD per 1M tokens) - BATCH API tem 50% de desconto
+    # Definindo preços base (USD por 1M tokens) dependendo do modelo selecionado
+    if "sonnet" in MODEL:
+        # Claude 3.7 Sonnet pricing
+        price_input = 3.00
+        price_output = 15.00
+        price_cache_read = 0.30
+    elif "haiku-latest" in MODEL or "haiku-3-5" in MODEL:
+        # Claude 3.5 Haiku pricing
+        price_input = 0.80
+        price_output = 4.00
+        price_cache_read = 0.08
+    else:
+        # Fallback (geralmente Haiku 4.5 ou similar)
+        price_input = 0.80
+        price_output = 4.00
+        price_cache_read = 0.08
+
+    # BATCH API tem 50% de desconto no input e output
     cost = (
-        (input_tokens / 1_000_000) * 0.40   # 50% de 0.80
-        + (output_tokens / 1_000_000) * 2.00 # 50% de 4.00
-        + (cache_read_tokens / 1_000_000) * 0.08
+        (input_tokens / 1_000_000) * (price_input * 0.5)
+        + (output_tokens / 1_000_000) * (price_output * 0.5)
+        + (cache_read_tokens / 1_000_000) * price_cache_read
     )
     return cost
 
