@@ -17,6 +17,7 @@ from scraper import scrape_all
 from scraped_sources import SCRAPED_SOURCES
 from sources import SOURCES
 from config_wizard import run_setup
+from version import VERSION
 
 SEEN_IDS_PATH = "seen_ids.json"
 ERRORS_LOG_PATH = "feed_errors.log"
@@ -48,6 +49,7 @@ def log_errors(error_sources: list[str]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Aora — AI Clipping")
     parser.add_argument("command", nargs="?", default="all", choices=["all", "rss", "web", "config"], help="O comando a ser executado: 'all' (padrão), 'rss', 'web' ou 'config'")
+    parser.add_argument("-v", "--version", action="version", version=f"Aora v{VERSION}", help="Mostra a versão do programa")
     args = parser.parse_args()
 
     if args.command == "config":
@@ -82,7 +84,7 @@ def main() -> None:
 
     print("\n" + "="*50)
     print("  █▀█ █▀█ █▀█ █▀█  :: Hoje: " + today.isoformat())
-    print("  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping")
+    print(f"  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping v{VERSION}")
     print("="*50)
     print(f"Janela: {lookback_hours}h | Max por fonte: {max_items}")
     print(f"Saída: {output_path}")

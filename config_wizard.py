@@ -2,11 +2,13 @@ import os
 import sys
 from pathlib import Path
 
+from version import VERSION
+
 def run_setup() -> None:
     try:
         print("\n" + "="*50)
         print("  █▀█ █▀█ █▀█ █▀█  :: Setup Wizard")
-        print("  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping")
+        print(f"  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping v{VERSION}")
         print("="*50 + "\n")
 
         # Load existing env vars if any
