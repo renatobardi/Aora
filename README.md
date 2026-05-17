@@ -75,6 +75,16 @@ Output is written to `./output/YYYY-MM-DD-v1.md` by default. Set `OUTPUT_DIR` to
 
 Prompt caching on the system prompt reduces input token cost by ~90% across a batch. A typical run with 30–50 new items costs **~$0.01–$0.03 USD** using Claude Haiku.
 
+## Automation
+
+To run Aora automatically every day, see **[AUTOMATION.md](AUTOMATION.md)** for step-by-step guides covering:
+
+- GitHub Actions (cron workflow, commits output back to repo)
+- Claude Code (`/schedule` — session or persistent cloud routine)
+- Goose/Block (recipe + cron)
+- macOS LaunchAgent (recommended for local use — survives sleep)
+- crontab (Linux / macOS)
+
 ## Adding sources
 
 See [CLAUDE.md](CLAUDE.md) for the scraper architecture and instructions on adding RSS feeds (`sources.py`) or scraped websites (`scraped_sources.py`).
