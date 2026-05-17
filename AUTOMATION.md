@@ -33,6 +33,8 @@ on:
 jobs:
   clip:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required for git push
     steps:
       - uses: actions/checkout@v4
 
@@ -56,7 +58,8 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add output/ seen_ids.json
+          # seen_ids.json and output/ are in .gitignore — use -f to persist state between runs
+          git add -f seen_ids.json output/
           git diff --cached --quiet || git commit -m "chore: daily clipping $(date -u +%F)"
           git push
 ```

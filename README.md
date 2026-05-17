@@ -36,7 +36,7 @@ Re-running on the same day increments the version (`-v2.md`, `-v3.md`) and merge
 
 **27 RSS feeds** — OpenAI, Google AI, DeepMind, Meta AI, Microsoft Research, AWS ML, NVIDIA, Apple ML, Databricks, Hugging Face, GitHub, LangChain, Character.AI, ArXiv CS.AI, MIT Tech Review, TechCrunch AI, The Verge AI, Ars Technica, IEEE Spectrum, VentureBeat, Ahead of AI, Interconnects, Import AI, Last Week in AI, Simon Willison, Pandaily, Writer
 
-**~25 scraped websites** (sitemap / static HTML / Playwright) — Anthropic, Mistral AI, Cohere, xAI, Cerebras, SambaNova, Groq, Together AI, Runway, ElevenLabs, Cursor, Weights & Biases, Allen AI, Novita AI, Venice.ai, AAIF, Moonshot AI (Kimi), Sakana AI, Qwen, MiniMax, Snowflake, Modal Labs, ByteDance, Scale AI, Replit, DeepSeek, NanoGPT, Tessl
+**31 scraped websites** (sitemap / static HTML / Playwright) — Anthropic, Mistral AI, Cohere, xAI, Cerebras, SambaNova, Groq, Together AI, Runway, ElevenLabs, Cursor, Weights & Biases, Allen AI, Manus AI, Cognition AI, Harvey AI, Novita AI, Venice.ai, AAIF, Moonshot AI (Kimi), Sakana AI, Qwen, MiniMax, Snowflake, Modal Labs, ByteDance, Scale AI, Replit, DeepSeek, NanoGPT, Tessl
 
 ## Installation
 

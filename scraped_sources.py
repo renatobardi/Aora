@@ -88,7 +88,7 @@ SCRAPED_SOURCES = [
     {
         "name": "AAIF", "category": "agents-search", "method": "sitemap",
         "sitemap_url": "https://aaif.io/sitemap.xml",
-        "url_pattern": r"aaif\.io/blog/[a-z0-9][a-z0-9\-]+/?$",
+        "url_pattern": r"aaif\.io/blog/[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?/?$",
         "sub_pattern": "post-sitemap",
     },
     {
@@ -138,7 +138,7 @@ SCRAPED_SOURCES = [
     {
         "name": "Tessl", "category": "dev-tools", "method": "html",
         "listing_url": "https://tessl.io/blog/",
-        "link_pattern": r"tessl\.io/blog/[a-z0-9][a-z0-9\-]+/?$",
+        "link_pattern": r"tessl\.io/blog/[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?/?$",
         "base_url": "https://tessl.io",
     },
     {
