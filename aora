@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Vai para a pasta do projeto Aora antes de rodar, para achar o main.py e o .env
+cd "/Users/bardi/Projects/Github/Aora" || exit
+python3 main.py "$@"
