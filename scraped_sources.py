@@ -86,6 +86,12 @@ SCRAPED_SOURCES = [
     },
 
     {
+        "name": "AAIF", "category": "agents-search", "method": "sitemap",
+        "sitemap_url": "https://aaif.io/sitemap.xml",
+        "url_pattern": r"aaif\.io/blog/[a-z0-9][a-z0-9\-]+/?$",
+        "sub_pattern": "post-sitemap",
+    },
+    {
         "name": "Novita AI", "category": "infra-data", "method": "sitemap",
         "sitemap_url": "https://blogs.novita.ai/sitemap.xml",
         "url_pattern": r"blogs\.novita\.ai/(?!tag/|category/|author/)[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?/?$",
@@ -128,6 +134,12 @@ SCRAPED_SOURCES = [
         "listing_url": "https://www.kimi.com/blog/",
         "link_pattern": r"kimi\.com/blog/[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?$",
         "base_url": "https://www.kimi.com",
+    },
+    {
+        "name": "Tessl", "category": "dev-tools", "method": "html",
+        "listing_url": "https://tessl.io/blog/",
+        "link_pattern": r"tessl\.io/blog/[a-z0-9][a-z0-9\-]+/?$",
+        "base_url": "https://tessl.io",
     },
     {
         "name": "NanoGPT", "category": "infra-data", "method": "html",
