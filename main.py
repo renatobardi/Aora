@@ -67,7 +67,7 @@ def main() -> None:
             sys.exit(1)
 
     output_dir = Path(os.getenv("OUTPUT_DIR", "./output"))
-    lookback_hours = int(os.getenv("LOOKBACK_HOURS", "48"))
+    lookback_hours = int(os.getenv("LOOKBACK_HOURS", "72"))
     max_items = int(os.getenv("MAX_ITEMS_PER_SOURCE", "5"))
 
     output_dir.mkdir(parents=True, exist_ok=True)

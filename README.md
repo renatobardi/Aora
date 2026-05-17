@@ -68,7 +68,7 @@ Output is written to `./output/YYYY-MM-DD-v1.md` by default. Set `OUTPUT_DIR` to
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Required |
 | `OUTPUT_DIR` | `./output` | Destination folder (Obsidian vault path works) |
-| `LOOKBACK_HOURS` | `48` | How far back to look for new items |
+| `LOOKBACK_HOURS` | `72` | How far back to look for new items |
 | `MAX_ITEMS_PER_SOURCE` | `5` | Cap per source per run |
 
 ## Cost
