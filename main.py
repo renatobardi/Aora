@@ -126,7 +126,7 @@ def main() -> None:
     # 3. Process new items with LLM
     client = anthropic.Anthropic(api_key=api_key)
     print("Processando com Claude Haiku...")
-    enriched, total_input, total_output, total_cache = process_all(new_items, client)
+    enriched, total_input, total_output, total_cache, is_async = process_all(new_items, client)
     print()
 
     # 4. Merge with previous items and render full day
@@ -141,7 +141,7 @@ def main() -> None:
     log_errors(error_sources)
 
     # 6. Summary
-    cost = estimate_cost(total_input, total_output, total_cache)
+    cost = estimate_cost(total_input, total_output, total_cache, is_async)
     print()
     print("=" * 50)
     print(f"✓ {len(enriched)} novos | {len(all_today)} total no dia")

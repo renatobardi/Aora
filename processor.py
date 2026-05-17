@@ -92,7 +92,7 @@ def process_item(item: dict, client: anthropic.Anthropic) -> dict:
         return _fallback(item)
 
 
-def estimate_cost(input_tokens: int, output_tokens: int, cache_read_tokens: int) -> float:
+def estimate_cost(input_tokens: int, output_tokens: int, cache_read_tokens: int, is_async: bool = False) -> float:
     # Definindo preços base (USD por 1M tokens) dependendo do modelo selecionado
     if "sonnet" in MODEL:
         # Claude 3.7 Sonnet pricing
@@ -110,16 +110,63 @@ def estimate_cost(input_tokens: int, output_tokens: int, cache_read_tokens: int)
         price_output = 4.00
         price_cache_read = 0.08
 
-    # BATCH API tem 50% de desconto no input e output
+    # Se for assíncrono (Batch API), tem 50% de desconto
+    discount = 0.5 if is_async else 1.0
+
     cost = (
-        (input_tokens / 1_000_000) * (price_input * 0.5)
-        + (output_tokens / 1_000_000) * (price_output * 0.5)
+        (input_tokens / 1_000_000) * (price_input * discount)
+        + (output_tokens / 1_000_000) * (price_output * discount)
         + (cache_read_tokens / 1_000_000) * price_cache_read
     )
     return cost
 
+def process_item_sync(item: dict, client: anthropic.Anthropic) -> dict:
+    user_message = (
+        f"Empresa: {item['source_name']}\n"
+        f"Título: {item['title']}\n"
+        f"Conteúdo: {item['content']}\n\n"
+        'Responda APENAS com um JSON:\n'
+        '{\n'
+        '  "tldr": "Uma frase: o que foi publicado/anunciado.",\n'
+        '  "por_que_importa": "1-2 frases: implicação técnica ou estratégica real.",\n'
+        '  "tags": ["tag1", "tag2", "tag3"]\n'
+        '}'
+    )
 
-def process_all(
+    try:
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=MAX_TOKENS,
+            system=[
+                {
+                    "type": "text",
+                    "text": SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[{"role": "user", "content": user_message}],
+        )
+        parsed = _parse_json_response(response.content[0].text)
+
+        # sanitize tags to only valid ones
+        tags = [t for t in parsed.get("tags", []) if t in VALID_TAGS]
+
+        usage = response.usage
+        return {
+            **item,
+            "tldr": parsed.get("tldr", ""),
+            "por_que_importa": parsed.get("por_que_importa", ""),
+            "tags": tags,
+            "tokens_input": usage.input_tokens,
+            "tokens_output": usage.output_tokens,
+            "tokens_cache_read": getattr(usage, "cache_read_input_tokens", 0),
+        }
+
+    except Exception as exc:
+        print(f"  [LLM ERROR] {item['source_name']} — {item['title'][:60]}: {exc}")
+        return _fallback(item)
+
+def process_all_async(
     items: list[dict], client: anthropic.Anthropic
 ) -> tuple[list[dict], int, int, int]:
     if not items:
@@ -218,3 +265,34 @@ def process_all(
             enriched.append(_fallback(item))
 
     return enriched, total_input, total_output, total_cache
+
+
+def process_all_sync(
+    items: list[dict], client: anthropic.Anthropic
+) -> tuple[list[dict], int, int, int]:
+    enriched: list[dict] = []
+    total_input = total_output = total_cache = 0
+
+    print("  Usando modo Síncrono (Rápido) [◈]")
+    for i, item in enumerate(items, 1):
+        print(f"  [{i}/{len(items)}] {item['source_name']}: {item['title'][:60]}")
+        result = process_item_sync(item, client)
+        enriched.append(result)
+        total_input += result["tokens_input"]
+        total_output += result["tokens_output"]
+        total_cache += result["tokens_cache_read"]
+
+    return enriched, total_input, total_output, total_cache
+
+
+def process_all(
+    items: list[dict], client: anthropic.Anthropic
+) -> tuple[list[dict], int, int, int, bool]:
+    mode = os.getenv("PROCESS_MODE", "sync")
+    
+    if mode == "async":
+        enriched, inp, out, cache = process_all_async(items, client)
+        return enriched, inp, out, cache, True
+    else:
+        enriched, inp, out, cache = process_all_sync(items, client)
+        return enriched, inp, out, cache, False
