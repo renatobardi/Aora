@@ -85,6 +85,20 @@ SCRAPED_SOURCES = [
         "url_pattern": r"runwayml\.com/research/[a-z0-9]+(?:-[a-z0-9]+){2,}$",  # exclude single-word section pages
     },
 
+    # ── SITEMAP (continued) ───────────────────────────────────────────────────
+    {
+        "name": "Novita AI", "category": "infra-data", "method": "sitemap",
+        "sitemap_url": "https://blogs.novita.ai/sitemap.xml",
+        "url_pattern": r"blogs\.novita\.ai/(?!tag/|category/|author/)[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?/?$",
+        "sub_pattern": "post-sitemap",  # skip page-sitemap.xml
+    },
+    {
+        "name": "Venice.ai", "category": "infra-data", "method": "sitemap",
+        "sitemap_url": "https://venice.ai/sitemap.xml",
+        "url_pattern": r"venice\.ai/blog/[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?$",
+        # multi-lang hreflang (es, de) in sitemap; pattern restricts to English /blog/slug only
+    },
+
     # ── HTML ESTÁTICO ─────────────────────────────────────────────────────────
     {
         "name": "Snowflake", "category": "infra-data", "method": "html",
@@ -109,6 +123,18 @@ SCRAPED_SOURCES = [
         "listing_url": "https://sakana.ai/blog/",
         "link_pattern": r"sakana\.ai/[a-z][^/?#]+/?$",  # posts at root level, not /blog/slug
         "base_url": "https://sakana.ai",
+    },
+    {
+        "name": "Moonshot AI", "category": "foundation-model", "method": "html",
+        "listing_url": "https://www.kimi.com/blog/",
+        "link_pattern": r"kimi\.com/blog/[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?$",
+        "base_url": "https://www.kimi.com",
+    },
+    {
+        "name": "NanoGPT", "category": "infra-data", "method": "html",
+        "listing_url": "https://nano-gpt.com/blog",
+        "link_pattern": r"nano-gpt\.com/blog/[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?$",
+        "base_url": "https://nano-gpt.com",
     },
 
     # ── PLAYWRIGHT (JS-heavy) ─────────────────────────────────────────────────
@@ -137,4 +163,12 @@ SCRAPED_SOURCES = [
         "listing_url": "https://www.deepseek.com/",
         "link_pattern": r"deepseek\.com/(news|blog|research)/[^/?#]+$",
     },
+    # Zhipu AI (GLM) — NOT ENABLED: zhipuai.cn is a Vue SPA where news items are divs
+    # with Vue click handlers, not <a> links — requires a custom scraping strategy.
+    # {
+    #     "name": "Zhipu AI", "category": "china", "method": "playwright",
+    #     "listing_url": "https://www.zhipuai.cn/",
+    #     "link_pattern": r"zhipuai\.cn/news-details/[^/?#]+$",
+    #     "wait_until": "domcontentloaded",
+    # },
 ]

@@ -58,13 +58,15 @@ def scrape_playwright(
         cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=lookback_hours)
         link_re = re.compile(source["link_pattern"])
 
+        wait_until = source.get("wait_until", "networkidle")
+
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
                 page = browser.new_page(extra_http_headers={"User-Agent": HEADERS["User-Agent"]})
 
                 # Fetch listing page
-                page.goto(source["listing_url"], wait_until="networkidle", timeout=30000)
+                page.goto(source["listing_url"], wait_until=wait_until, timeout=30000)
                 time.sleep(2)
 
                 # Extract all links
