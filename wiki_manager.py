@@ -1,76 +1,164 @@
+from __future__ import annotations
+
 import os
 import re
+import subprocess
+from datetime import date
 from pathlib import Path
 
+
 def get_vault_path() -> Path:
-    """Busca o caminho do Vault configurado no .env ou tenta o default"""
     vault_dir = os.getenv("OUTPUT_DIR", "./output")
-    # Se o output_dir estiver apontando para a pasta raw dentro do Vault (como configurado no GUIA)
-    # nós queremos a raiz do vault
     if "raw" in vault_dir:
         return Path(vault_dir).parent
-    # Caso contrário, assume que a saída atual é o próprio Vault ou a raiz dele
     return Path(vault_dir)
 
+
 def get_unprocessed_raw_files(vault_path: Path) -> list[Path]:
-    """Lista todos os arquivos raw/*.md que ainda não estão logados no wiki/log.md"""
     raw_dir = vault_path / "raw"
     log_file = vault_path / "wiki" / "log.md"
-    
+
     if not raw_dir.exists():
         return []
-        
+
     all_raws = list(raw_dir.glob("*.md"))
-    
-    # Se não tem log, tudo é não processado
+
     if not log_file.exists():
-        return all_raws
-        
+        return sorted(all_raws)
+
     log_content = log_file.read_text()
-    
-    # Procura arquivos mencionados no log: Source: `raw/filename.md`
     processed_files = re.findall(r"Source:\s*`?raw/([^`\n]+)`?", log_content)
-    
-    # Filtra os não processados
+
     unprocessed = [f for f in all_raws if f.name not in processed_files]
     return sorted(unprocessed)
 
-def run_ingest(file_path: str = None) -> None:
+
+def _run_claude(prompt: str, vault_path: Path) -> int:
+    result = subprocess.run(
+        [
+            "claude", "-p", prompt,
+            "--allowedTools", "Read,Write,Edit,Bash,Glob,Grep",
+        ],
+        cwd=str(vault_path),
+        check=False,
+    )
+    return result.returncode
+
+
+def run_ingest(file_path: str | None = None) -> None:
     vault_path = get_vault_path()
-    print(f"  [WIKI] Operando no Vault: {vault_path}")
-    
+    today = date.today().isoformat()
+    print(f"  [WIKI] Vault: {vault_path}")
+
     if file_path:
         target = Path(file_path)
-        if not target.exists():
-            # Tentar achar dentro da pasta raw/ do Vault
+        if not target.is_absolute():
             target = vault_path / "raw" / file_path
-            if not target.exists():
-                print(f"  [ERRO] Arquivo não encontrado: {file_path}")
-                return
+        if not target.exists():
+            print(f"  [ERRO] Arquivo não encontrado: {file_path}")
+            return
         files_to_process = [target]
     else:
         print("  [WIKI] Buscando arquivos raw não processados...")
         files_to_process = get_unprocessed_raw_files(vault_path)
-        
         if not files_to_process:
-            print("  [WIKI] Nenhum arquivo novo para ingerir. A Wiki está atualizada!")
+            print("  [WIKI] Nenhum arquivo novo. A Wiki está atualizada!")
             return
-            
-    print(f"  [WIKI] {len(files_to_process)} arquivos na fila de Ingestão.")
+
+    print(f"  [WIKI] {len(files_to_process)} arquivo(s) na fila:")
     for f in files_to_process:
         print(f"    - {f.name}")
-        
-    print("\n  ⚠️ Função Ingest LLM ainda em construção...")
-    # Aqui vai entrar o prompt cabuloso e o loop chamando o Claude
-    # ...
+    print()
+
+    for i, raw_file in enumerate(files_to_process, 1):
+        rel_path = raw_file.relative_to(vault_path)
+        print(f"  [{i}/{len(files_to_process)}] Ingerindo: {raw_file.name}")
+
+        prompt = f"""\
+Você está operando no vault de Obsidian em {vault_path}.
+
+Siga EXATAMENTE as instruções do CLAUDE.md deste vault para realizar o workflow INGEST do arquivo `{rel_path}`.
+
+IMPORTANTE: Processo automatizado. NÃO pause para fazer perguntas. Execute o workflow completo autonomamente:
+
+1. Leia o CLAUDE.md para entender o schema e as regras
+2. Leia as últimas 5 entradas de wiki/log.md para contexto recente
+3. Leia wiki/index.md para mapear o que já existe
+4. Leia o arquivo `{rel_path}` completamente
+5. Crie a source page em wiki/sources/
+6. Atualize as páginas de entidades/conceitos existentes (tipicamente 5-15 páginas)
+7. Crie páginas novas para entidades/conceitos mencionados que ainda não têm página
+8. Sinalize contradições com claims existentes usando `> ⚠️ Contradiction:`
+9. Atualize wiki/index.md
+10. Adicione entrada ao wiki/log.md no formato: ## [{today}] ingest | <título do documento>
+
+Ao terminar, exiba um resumo compacto: páginas criadas, páginas atualizadas, e os 2-3 achados mais importantes.
+"""
+
+        returncode = _run_claude(prompt, vault_path)
+        if returncode != 0:
+            print(f"  [ERRO] claude saiu com código {returncode} para {raw_file.name}")
+        print()
+
 
 def run_lint() -> None:
     vault_path = get_vault_path()
+    today = date.today().isoformat()
     print(f"  [WIKI] Iniciando LINT no Vault: {vault_path}")
-    print("  ⚠️ Função Lint ainda em construção...")
+
+    prompt = f"""\
+Você está operando no vault de Obsidian em {vault_path}.
+
+Siga EXATAMENTE as instruções do CLAUDE.md deste vault para realizar o workflow LINT.
+
+IMPORTANTE: Processo automatizado. Execute o lint completo autonomamente:
+
+1. Leia o CLAUDE.md para entender as regras
+2. Leia wiki/log.md para ver lints anteriores (não repita issues já corrigidas)
+3. Leia wiki/index.md para mapear todas as páginas
+4. Varra todas as páginas em wiki/ verificando:
+   - Contradições entre páginas
+   - Claims provavelmente desatualizados (ex: "o modelo mais recente é X")
+   - Páginas órfãs (nenhuma outra página aponta para elas)
+   - Conceitos mencionados mas sem página própria
+   - Cross-references faltando entre páginas relacionadas
+5. Corrija automaticamente os issues de severidade HIGH
+6. Para MEDIUM e LOW: liste o que corrigiu e o que ficou pendente
+7. Adicione entrada ao wiki/log.md no formato: ## [{today}] lint | Health check
+
+Exiba um resumo final: N issues encontrados (H high, M medium, L low), N corrigidos.
+"""
+
+    returncode = _run_claude(prompt, vault_path)
+    if returncode != 0:
+        print(f"  [ERRO] claude saiu com código {returncode}")
+
 
 def run_query(question: str) -> None:
     vault_path = get_vault_path()
-    print(f"  [WIKI] Realizando QUERY no Vault: {vault_path}")
+    today = date.today().isoformat()
+    print(f"  [WIKI] Query no Vault: {vault_path}")
     print(f"  [PERGUNTA] {question}")
-    print("  ⚠️ Função Query ainda em construção...")
+    print()
+
+    prompt = f"""\
+Você está operando no vault de Obsidian em {vault_path}.
+
+Siga EXATAMENTE as instruções do CLAUDE.md deste vault para responder a seguinte pergunta:
+
+"{question}"
+
+Workflow:
+1. Leia o CLAUDE.md para entender as regras
+2. Leia wiki/index.md para identificar páginas relevantes
+3. Leia as páginas relevantes
+4. Sintetize uma resposta completa com citações inline ([[página]])
+5. Se for resposta não-trivial (comparação, síntese multi-fonte, análise), salve em wiki/analyses/ e atualize index e log
+6. Se arquivada, adicione ao wiki/log.md no formato: ## [{today}] query | {question[:60]}
+
+Exiba a resposta completa com citações.
+"""
+
+    returncode = _run_claude(prompt, vault_path)
+    if returncode != 0:
+        print(f"  [ERRO] claude saiu com código {returncode}")

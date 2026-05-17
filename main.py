@@ -91,7 +91,7 @@ def main() -> None:
     # Roteamento dos novos comandos do Wiki
     if args.command in ["ingest", "lint", "query"]:
         from wiki_manager import run_ingest, run_lint, run_query
-        
+
         print("\n" + "="*50)
         print("  █▀█ █▀█ █▀█ █▀█  :: Wiki Manager")
         print("  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping")
@@ -102,9 +102,8 @@ def main() -> None:
         elif args.command == "lint":
             run_lint()
         elif args.command == "query":
-            question = " ".join(args.question)
-            run_query(question)
-            
+            run_query(" ".join(args.question))
+
         sys.exit(0)
 
     output_dir = Path(os.getenv("OUTPUT_DIR", "./output"))
