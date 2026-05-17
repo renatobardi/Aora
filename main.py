@@ -16,6 +16,7 @@ from renderer import render_daily
 from scraper import scrape_all
 from scraped_sources import SCRAPED_SOURCES
 from sources import SOURCES
+from config_wizard import run_setup
 
 SEEN_IDS_PATH = "seen_ids.json"
 ERRORS_LOG_PATH = "feed_errors.log"
@@ -46,15 +47,24 @@ def log_errors(error_sources: list[str]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Aora — AI Clipping")
-    parser.add_argument("command", nargs="?", default="all", choices=["all", "rss", "web"], help="O comando a ser executado: 'all' (padrão), 'rss' ou 'web'")
+    parser.add_argument("command", nargs="?", default="all", choices=["all", "rss", "web", "config"], help="O comando a ser executado: 'all' (padrão), 'rss', 'web' ou 'config'")
     args = parser.parse_args()
+
+    if args.command == "config":
+        run_setup()
+        sys.exit(0)
 
     load_dotenv()
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        print("ERRO: ANTHROPIC_API_KEY não definida no .env")
-        sys.exit(1)
+        print("Aora não configurado. Iniciando assistente...")
+        run_setup()
+        load_dotenv(override=True)
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            print("ERRO: Configuração cancelada ou ANTHROPIC_API_KEY não definida.")
+            sys.exit(1)
 
     output_dir = Path(os.getenv("OUTPUT_DIR", "./output"))
     lookback_hours = int(os.getenv("LOOKBACK_HOURS", "48"))
