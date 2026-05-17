@@ -80,7 +80,10 @@ def main() -> None:
     next_version = len(existing) + 1
     output_path = output_dir / f"{today.isoformat()}-v{next_version}.md"
 
-    print(f"AI Clipping — {today.isoformat()}")
+    print("\n" + "="*50)
+    print("  █▀█ █▀█ █▀█ █▀█  :: Hoje: " + today.isoformat())
+    print("  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping")
+    print("="*50)
     print(f"Janela: {lookback_hours}h | Max por fonte: {max_items}")
     print(f"Saída: {output_path}")
     print()
@@ -95,7 +98,7 @@ def main() -> None:
     if args.command in ["all", "rss"]:
         print("Buscando feeds RSS...")
         rss_items, rss_errors, updated_ids = fetch_all(SOURCES, seen_ids, lookback_hours, max_items)
-        print(f"\n{len(rss_items)} itens RSS novos | {len(rss_errors)} feeds com erro")
+        print(f"{len(rss_items)} itens RSS novos | {len(rss_errors)} feeds com erro [◈]")
         print()
     else:
         updated_ids = seen_ids.copy()
@@ -105,7 +108,7 @@ def main() -> None:
     if args.command in ["all", "web"]:
         print("Scraping web...")
         scraped_items, scraped_errors, updated_ids = scrape_all(SCRAPED_SOURCES, updated_ids, lookback_hours, max_items)
-        print(f"\n{len(scraped_items)} itens scraping novos | {len(scraped_errors)} fontes com erro")
+        print(f"{len(scraped_items)} itens scraping novos | {len(scraped_errors)} fontes com erro [◈]")
         print()
 
     new_items = rss_items + scraped_items
@@ -130,7 +133,7 @@ def main() -> None:
     all_today = previous_items + enriched
     content = render_daily(all_today, error_sources, today)
     output_path.write_text(content)
-    print(f"Arquivo salvo: {output_path} ({len(all_today)} itens no total)")
+    print(f"Arquivo salvo: {output_path} ({len(all_today)} itens no total) [◈]")
 
     # 5. Persist state
     save_seen_ids(updated_ids, SEEN_IDS_PATH)
