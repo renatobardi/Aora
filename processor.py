@@ -45,53 +45,6 @@ def _fallback(item: dict) -> dict:
     }
 
 
-def process_item(item: dict, client: anthropic.Anthropic) -> dict:
-    user_message = (
-        f"Empresa: {item['source_name']}\n"
-        f"Título: {item['title']}\n"
-        f"Conteúdo: {item['content']}\n\n"
-        'Responda APENAS com um JSON:\n'
-        '{\n'
-        '  "tldr": "Uma frase: o que foi publicado/anunciado.",\n'
-        '  "por_que_importa": "1-2 frases: implicação técnica ou estratégica real.",\n'
-        '  "tags": ["tag1", "tag2", "tag3"]\n'
-        '}'
-    )
-
-    try:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
-            system=[
-                {
-                    "type": "text",
-                    "text": SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": user_message}],
-        )
-        parsed = _parse_json_response(response.content[0].text)
-
-        # sanitize tags to only valid ones
-        tags = [t for t in parsed.get("tags", []) if t in VALID_TAGS]
-
-        usage = response.usage
-        return {
-            **item,
-            "tldr": parsed.get("tldr", ""),
-            "por_que_importa": parsed.get("por_que_importa", ""),
-            "tags": tags,
-            "tokens_input": usage.input_tokens,
-            "tokens_output": usage.output_tokens,
-            "tokens_cache_read": getattr(usage, "cache_read_input_tokens", 0),
-        }
-
-    except Exception as exc:
-        print(f"  [LLM ERROR] {item['source_name']} — {item['title'][:60]}: {exc}")
-        return _fallback(item)
-
-
 def estimate_cost(input_tokens: int, output_tokens: int, cache_read_tokens: int, is_async: bool = False) -> float:
     # Definindo preços base (USD por 1M tokens) dependendo do modelo selecionado
     if "sonnet" in MODEL:
@@ -210,7 +163,10 @@ def process_all_async(
     
     print(f"  Lote criado (ID: {batch.id}). Aguardando processamento...")
     
-    # Polling - esperar terminar
+    # Polling - esperar terminar com backoff
+    wait_time = 10
+    max_wait_time = 60
+
     while True:
         status = client.messages.batches.retrieve(batch.id)
         if status.processing_status == "ended":
@@ -219,9 +175,11 @@ def process_all_async(
             print(f"  [ERRO] Batch cancelado ou expirado. Status: {status.processing_status}")
             return [_fallback(item) for item in items], 0, 0, 0
         
-        # A API de Batch pode demorar, mas geralmente pequenos lotes terminam em segundos/minutos.
-        print("  Processando... (aguardando 10s)")
-        time.sleep(10)
+        print(f"  Processando... (aguardando {wait_time}s)")
+        time.sleep(wait_time)
+        
+        if wait_time < max_wait_time:
+            wait_time += 10
 
     # Processar resultados
     print("  Batch concluído! Baixando resultados... [◈]")
