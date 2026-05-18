@@ -47,10 +47,9 @@ def log_errors(error_sources: list[str]) -> None:
             f.write(f"  ERRO: {name}\n")
 
 
-def main() -> None:
-    _Fmt = argparse.RawDescriptionHelpFormatter
+_HelpFmt = argparse.RawDescriptionHelpFormatter
 
-    _env_all = """\
+_ENV_ALL = """\
 variáveis de ambiente:
   ANTHROPIC_API_KEY       obrigatória
   ANTHROPIC_MODEL         modelo LLM      (padrão: claude-haiku-4-5-20251001)
@@ -59,18 +58,20 @@ variáveis de ambiente:
   LOOKBACK_HOURS          janela horas    (padrão: 72, máx: 240)
   MAX_ITEMS_PER_SOURCE    cap por fonte   (padrão: 5, máx: 99)"""
 
-    _env_clipping = """\
+_ENV_CLIPPING = """\
 variáveis relevantes:
   LOOKBACK_HOURS          janela de busca em horas  (padrão: 72, máx: 240)
   MAX_ITEMS_PER_SOURCE    cap de itens por fonte    (padrão: 5, máx: 99)
   PROCESS_MODE            sync | async              (padrão: sync)
   OUTPUT_DIR              diretório de saída        (padrão: ./output)"""
 
-    _env_wiki = """\
+_ENV_WIKI = """\
 variáveis relevantes:
   OUTPUT_DIR    raiz do vault Obsidian (padrão: ./output)
                 se terminar em /raw, a raiz é o diretório pai"""
 
+
+def main() -> None:
     parser = argparse.ArgumentParser(
         prog="aora",
         description=(
@@ -78,8 +79,8 @@ variáveis relevantes:
             "Busca conteúdo de ~50 fontes de IA, resume com Claude Haiku\n"
             "e gera um arquivo Markdown diário para Obsidian."
         ),
-        formatter_class=_Fmt,
-        epilog=_env_all,
+        formatter_class=_HelpFmt,
+        epilog=_ENV_ALL,
     )
     parser.add_argument("-v", "--version", action="version", version=f"Aora v{VERSION}", help="mostra a versão e sai")
 
@@ -93,28 +94,28 @@ variáveis relevantes:
             "Executa o pipeline completo: coleta RSS, web scraping e enriquecimento LLM.\n"
             "Equivalente a rodar aora sem nenhum argumento."
         ),
-        formatter_class=_Fmt,
-        epilog=_env_clipping,
+        formatter_class=_HelpFmt,
+        epilog=_ENV_CLIPPING,
     )
     subparsers.add_parser(
         "rss",
         help="busca apenas feeds RSS",
         description=(
             "Coleta apenas os feeds RSS configurados em sources.py.\n"
-            "Não executa web scraping nem enriquecimento LLM."
+            "Não executa web scraping."
         ),
-        formatter_class=_Fmt,
-        epilog=_env_clipping,
+        formatter_class=_HelpFmt,
+        epilog=_ENV_CLIPPING,
     )
     subparsers.add_parser(
         "web",
         help="executa apenas o web scraping",
         description=(
             "Executa apenas o web scraping das fontes em scraped_sources.py.\n"
-            "Não coleta RSS nem executa enriquecimento LLM."
+            "Não coleta feeds RSS."
         ),
-        formatter_class=_Fmt,
-        epilog=_env_clipping,
+        formatter_class=_HelpFmt,
+        epilog=_ENV_CLIPPING,
     )
     subparsers.add_parser(
         "config",
@@ -123,7 +124,7 @@ variáveis relevantes:
             "Abre o wizard interativo para criar ou atualizar o arquivo .env.\n"
             "Configure ANTHROPIC_API_KEY, OUTPUT_DIR, LOOKBACK_HOURS e outros parâmetros."
         ),
-        formatter_class=_Fmt,
+        formatter_class=_HelpFmt,
     )
 
     # --- Wiki Manager ---
@@ -134,8 +135,8 @@ variáveis relevantes:
             "Ingere arquivos raw não processados na wiki via claude -p.\n"
             "Sem argumento: processa todos os raw/*.md ainda não registrados em wiki/log.md."
         ),
-        formatter_class=_Fmt,
-        epilog=_env_wiki,
+        formatter_class=_HelpFmt,
+        epilog=_ENV_WIKI,
     )
     ingest_parser.add_argument(
         "file",
@@ -152,8 +153,8 @@ variáveis relevantes:
             "desatualizados e cross-references faltando.\n"
             "Corrige automaticamente os issues de severidade HIGH."
         ),
-        formatter_class=_Fmt,
-        epilog=_env_wiki,
+        formatter_class=_HelpFmt,
+        epilog=_ENV_WIKI,
     )
 
     query_parser = subparsers.add_parser(
@@ -163,8 +164,8 @@ variáveis relevantes:
             "Responde uma pergunta sintetizando informações da wiki com citações.\n"
             "Respostas não-triviais são salvas automaticamente em wiki/analyses/."
         ),
-        formatter_class=_Fmt,
-        epilog=_env_wiki,
+        formatter_class=_HelpFmt,
+        epilog=_ENV_WIKI,
     )
     query_parser.add_argument(
         "question",
