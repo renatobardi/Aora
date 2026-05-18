@@ -47,27 +47,132 @@ def log_errors(error_sources: list[str]) -> None:
             f.write(f"  ERRO: {name}\n")
 
 
+_HelpFmt = argparse.RawDescriptionHelpFormatter
+
+_ENV_ALL = """\
+variáveis de ambiente:
+  ANTHROPIC_API_KEY       obrigatória
+  ANTHROPIC_MODEL         modelo LLM      (padrão: claude-haiku-4-5-20251001)
+  PROCESS_MODE            sync | async    (padrão: sync — async usa Batch API, 50% mais barato)
+  OUTPUT_DIR              saída / vault   (padrão: ./output)
+  LOOKBACK_HOURS          janela horas    (padrão: 72, máx: 240)
+  MAX_ITEMS_PER_SOURCE    cap por fonte   (padrão: 5, máx: 99)"""
+
+_ENV_CLIPPING = """\
+variáveis relevantes:
+  LOOKBACK_HOURS          janela de busca em horas  (padrão: 72, máx: 240)
+  MAX_ITEMS_PER_SOURCE    cap de itens por fonte    (padrão: 5, máx: 99)
+  PROCESS_MODE            sync | async              (padrão: sync)
+  OUTPUT_DIR              diretório de saída        (padrão: ./output)"""
+
+_ENV_WIKI = """\
+variáveis relevantes:
+  OUTPUT_DIR    raiz do vault Obsidian (padrão: ./output)
+                se terminar em /raw, a raiz é o diretório pai"""
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Aora — AI Clipping & Wiki Manager")
-    parser.add_argument("-v", "--version", action="version", version=f"Aora v{VERSION}", help="Mostra a versão do programa")
+    parser = argparse.ArgumentParser(
+        prog="aora",
+        description=(
+            "Aora — AI Clipping & Wiki Manager\n\n"
+            "Busca conteúdo de ~50 fontes de IA, resume com Claude Haiku\n"
+            "e gera um arquivo Markdown diário para Obsidian."
+        ),
+        formatter_class=_HelpFmt,
+        epilog=_ENV_ALL,
+    )
+    parser.add_argument("-v", "--version", action="version", version=f"Aora v{VERSION}", help="mostra a versão e sai")
 
-    # Comandos principais
-    subparsers = parser.add_subparsers(dest="command", help="Comando a ser executado")
+    subparsers = parser.add_subparsers(dest="command", metavar="comando")
 
-    # Antigos comandos de clipping
-    subparsers.add_parser("all", help="Roda o pipeline completo de clipping (padrão)")
-    subparsers.add_parser("rss", help="Roda apenas a coleta RSS")
-    subparsers.add_parser("web", help="Roda apenas o Web Scraping")
-    subparsers.add_parser("config", help="Abre o assistente de configuração")
+    # --- Clipping ---
+    subparsers.add_parser(
+        "all",
+        help="pipeline completo: RSS + web scraping + LLM (padrão)",
+        description=(
+            "Executa o pipeline completo: coleta RSS, web scraping e enriquecimento LLM.\n"
+            "Equivalente a rodar aora sem nenhum argumento."
+        ),
+        formatter_class=_HelpFmt,
+        epilog=_ENV_CLIPPING,
+    )
+    subparsers.add_parser(
+        "rss",
+        help="busca apenas feeds RSS",
+        description=(
+            "Coleta apenas os feeds RSS configurados em sources.py.\n"
+            "Não executa web scraping."
+        ),
+        formatter_class=_HelpFmt,
+        epilog=_ENV_CLIPPING,
+    )
+    subparsers.add_parser(
+        "web",
+        help="executa apenas o web scraping",
+        description=(
+            "Executa apenas o web scraping das fontes em scraped_sources.py.\n"
+            "Não coleta feeds RSS."
+        ),
+        formatter_class=_HelpFmt,
+        epilog=_ENV_CLIPPING,
+    )
+    subparsers.add_parser(
+        "config",
+        help="assistente interativo de configuração (.env)",
+        description=(
+            "Abre o wizard interativo para criar ou atualizar o arquivo .env.\n"
+            "Configure ANTHROPIC_API_KEY, OUTPUT_DIR, LOOKBACK_HOURS e outros parâmetros."
+        ),
+        formatter_class=_HelpFmt,
+    )
 
-    # Novos comandos de Wiki
-    ingest_parser = subparsers.add_parser("ingest", help="Ingere arquivos cruos para dentro da Wiki")
-    ingest_parser.add_argument("file", nargs="?", help="Arquivo específico para ingerir (opcional)")
+    # --- Wiki Manager ---
+    ingest_parser = subparsers.add_parser(
+        "ingest",
+        help="ingere arquivo(s) raw na wiki via Claude",
+        description=(
+            "Ingere arquivos raw não processados na wiki via claude -p.\n"
+            "Sem argumento: processa todos os raw/*.md ainda não registrados em wiki/log.md."
+        ),
+        formatter_class=_HelpFmt,
+        epilog=_ENV_WIKI,
+    )
+    ingest_parser.add_argument(
+        "file",
+        nargs="?",
+        metavar="arquivo",
+        help="arquivo raw específico para ingerir (relativo a <vault>/raw/; opcional)",
+    )
 
-    subparsers.add_parser("lint", help="Realiza uma auditoria de saúde na Wiki")
+    subparsers.add_parser(
+        "lint",
+        help="auditoria de saúde da wiki",
+        description=(
+            "Examina o vault em busca de contradições, páginas órfãs, claims\n"
+            "desatualizados e cross-references faltando.\n"
+            "Corrige automaticamente os issues de severidade HIGH."
+        ),
+        formatter_class=_HelpFmt,
+        epilog=_ENV_WIKI,
+    )
 
-    query_parser = subparsers.add_parser("query", help="Faz uma pergunta usando a Wiki como base de conhecimento")
-    query_parser.add_argument("question", nargs="+", help="A pergunta a ser feita")
+    query_parser = subparsers.add_parser(
+        "query",
+        help="consulta a wiki como base de conhecimento",
+        description=(
+            "Responde uma pergunta sintetizando informações da wiki com citações.\n"
+            "Respostas não-triviais são salvas automaticamente em wiki/analyses/."
+        ),
+        formatter_class=_HelpFmt,
+        epilog=_ENV_WIKI,
+    )
+    query_parser.add_argument(
+        "question",
+        nargs="+",
+        metavar="pergunta",
+        help="pergunta a responder (use aspas para frases longas)",
+    )
 
     args = parser.parse_args()
     
