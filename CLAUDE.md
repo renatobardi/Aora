@@ -29,6 +29,9 @@ python main.py query <question> # query the wiki as a knowledge base
 # Convenience wrapper (runs from any directory)
 ./aora [subcommand]
 
+# Scheduling (see AUTOMATION.md for crontab / LaunchAgent / GitHub Actions / Claude Code)
+# LaunchAgent is recommended on macOS (survives sleep)
+
 # Debug a single RSS feed
 python -c "import feedparser; f = feedparser.parse('https://huggingface.co/blog/feed.xml'); print(len(f.entries), 'entries')"
 
@@ -76,6 +79,30 @@ All scrapers and the RSS fetcher produce dicts with the same keys:
 {"id": str, "title": str, "url": str, "published": str, "source_name": str, "category": str, "content": str}
 ```
 `id` is always the URL (used for deduplication in `seen_ids.json`). `content` is truncated to 4000 chars before LLM processing.
+
+## Wiki vault layout
+
+The wiki commands (`ingest`, `lint`, `query`) operate on an Obsidian vault whose root is derived from `OUTPUT_DIR`:
+
+- If `OUTPUT_DIR` ends with `/raw` (e.g. `/Vault/AI/raw`), the vault root is the parent (`/Vault/AI`).
+- Otherwise `OUTPUT_DIR` is used as the vault root directly.
+
+Expected directory structure inside the vault:
+
+```
+<vault_root>/
+  raw/               ← unprocessed clipping files (input for ingest)
+  wiki/
+    log.md           ← append-only ingest/lint/query log (used to detect already-processed files)
+    index.md         ← page registry (updated by ingest)
+    sources/         ← one page per ingested source document
+    analyses/        ← saved query responses (non-trivial comparisons / syntheses)
+    CLAUDE.md        ← wiki-specific rules read by claude -p at runtime
+```
+
+`run_ingest` determines which `raw/*.md` files are unprocessed by diffing filenames against `wiki/log.md` entries.
+
+---
 
 ## Adding a new scraped source
 
