@@ -79,8 +79,11 @@ def _edit_provider(env_vars: dict) -> None:
 
     if selected == "google":
         env_vars.pop("ANTHROPIC_MODEL", None)
+        env_vars.setdefault("GOOGLE_MODEL", "gemini-2.5-flash-lite")
+        env_vars["PROCESS_MODE"] = "sync"
     else:
         env_vars.pop("GOOGLE_MODEL", None)
+        env_vars.setdefault("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 
 
 def _edit_model(env_vars: dict) -> None:
