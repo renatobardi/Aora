@@ -278,6 +278,15 @@ class TestCreateProvider:
         create_provider("google", "AIza-test456")
         _genai_stub.Client.assert_called_with(api_key="AIza-test456")
 
+    def test_google_missing_package_exits_with_message(self, capsys):
+        with patch.dict(sys.modules, {"google": None, "google.genai": None}):
+            with pytest.raises(SystemExit) as exc_info:
+                create_provider("google", "AIza-fake")
+        assert exc_info.value.code == 1
+        out = capsys.readouterr().out
+        assert "google-genai" in out
+        assert "pip install" in out
+
 
 # ── get_model ─────────────────────────────────────────────────────────────────
 
