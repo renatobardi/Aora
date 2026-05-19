@@ -1,0 +1,170 @@
+[
+  {
+    "name": "Anthropic", "category": "foundation-model", "method": "sitemap",
+    "sitemap_url": "https://www.anthropic.com/sitemap.xml",
+    "url_pattern": "anthropic\\.com/(news|research)/[^/?#]+$"
+  },
+  {
+    "name": "Mistral AI", "category": "foundation-model", "method": "sitemap",
+    "sitemap_url": "https://mistral.ai/sitemap.xml",
+    "url_pattern": "mistral\\.ai/(news|blog)/[^/?#]+$"
+  },
+  {
+    "name": "Cohere", "category": "foundation-model", "method": "sitemap",
+    "sitemap_url": "https://cohere.com/sitemap.xml",
+    "url_pattern": "cohere\\.com/blog/[^/?#]+$"
+  },
+  {
+    "name": "xAI", "category": "foundation-model", "method": "sitemap",
+    "sitemap_url": "https://x.ai/sitemap.xml",
+    "url_pattern": "x\\.ai/news/[^/?#]+$",
+    "parser": "lxml"
+  },
+  {
+    "name": "Manus AI", "category": "agents-search", "method": "sitemap",
+    "sitemap_url": "https://manus.im/sitemap.xml",
+    "url_pattern": "manus\\.im/blog/[^/?#]+$",
+    "fetch_dates": true
+  },
+  {
+    "name": "Cognition AI", "category": "agents-search", "method": "sitemap",
+    "sitemap_url": "https://www.cognition.ai/sitemap.xml",
+    "url_pattern": "cognition\\.ai/blog/[^/?#]+$",
+    "fix_protocol": true
+  },
+  {
+    "name": "Harvey AI", "category": "agents-search", "method": "sitemap",
+    "sitemap_url": "https://www.harvey.ai/sitemap.xml",
+    "url_pattern": "harvey\\.ai/blog/[^/?#]+$"
+  },
+  {
+    "name": "Cerebras", "category": "infra-data", "method": "sitemap",
+    "sitemap_url": "https://cerebras.ai/sitemap.xml",
+    "url_pattern": "cerebras\\.ai/blog/[^/?#]+$"
+  },
+  {
+    "name": "SambaNova", "category": "infra-data", "method": "sitemap",
+    "sitemap_url": "https://sambanova.ai/sitemap.xml",
+    "url_pattern": "sambanova\\.ai/blog/[^/?#]+$"
+  },
+  {
+    "name": "Allen AI", "category": "research", "method": "sitemap",
+    "sitemap_url": "https://allenai.org/sitemap.xml",
+    "url_pattern": "allenai\\.org/blog/[^/?#]+$"
+  },
+  {
+    "name": "Weights & Biases", "category": "dev-tools", "method": "sitemap",
+    "sitemap_url": "https://wandb.ai/sitemap.xml",
+    "url_pattern": "wandb\\.ai/fully-connected/[^/?#]+$"
+  },
+  {
+    "name": "ElevenLabs", "category": "generative", "method": "sitemap",
+    "sitemap_url": "https://elevenlabs.io/sitemap.xml",
+    "url_pattern": "elevenlabs\\.io/blog/[^/?#]+$",
+    "sub_pattern": "articles__en"
+  },
+  {
+    "name": "Cursor", "category": "dev-tools", "method": "sitemap",
+    "sitemap_url": "https://www.cursor.com/sitemap.xml",
+    "url_pattern": "cursor\\.com/blog/(?!topic)[^/?#]+$"
+  },
+  {
+    "name": "Groq", "category": "infra-data", "method": "sitemap",
+    "sitemap_url": "https://groq.com/sitemap.xml",
+    "url_pattern": "groq\\.com/(blog|newsroom)/[^/?#]+$"
+  },
+  {
+    "name": "Together AI", "category": "infra-data", "method": "sitemap",
+    "sitemap_url": "https://www.together.ai/sitemap.xml",
+    "url_pattern": "together\\.ai/blog/[^/?#]+$"
+  },
+  {
+    "name": "Runway", "category": "generative", "method": "sitemap",
+    "sitemap_url": "https://runwayml.com/sitemap.xml",
+    "url_pattern": "runwayml\\.com/research/[a-z0-9]+(?:-[a-z0-9]+){2,}$"
+  },
+  {
+    "name": "AAIF", "category": "agents-search", "method": "sitemap",
+    "sitemap_url": "https://aaif.io/sitemap.xml",
+    "url_pattern": "aaif\\.io/blog/[a-z0-9](?:[a-z0-9\\-]*[a-z0-9])?/?$",
+    "sub_pattern": "post-sitemap"
+  },
+  {
+    "name": "Novita AI", "category": "infra-data", "method": "sitemap",
+    "sitemap_url": "https://blogs.novita.ai/sitemap.xml",
+    "url_pattern": "blogs\\.novita\\.ai/(?!tag/|category/|author/)[a-z0-9](?:[a-z0-9\\-]*[a-z0-9])?/?$",
+    "sub_pattern": "post-sitemap"
+  },
+  {
+    "name": "Venice.ai", "category": "infra-data", "method": "sitemap",
+    "sitemap_url": "https://venice.ai/sitemap.xml",
+    "url_pattern": "venice\\.ai/blog/[a-z0-9](?:[a-z0-9\\-]*[a-z0-9])?$"
+  },
+  {
+    "name": "Snowflake", "category": "infra-data", "method": "html",
+    "listing_url": "https://www.snowflake.com/en/blog/",
+    "link_pattern": "/en/blog/[a-z0-9]+(?:-[a-z0-9]+){3,}/?$",
+    "base_url": "https://www.snowflake.com"
+  },
+  {
+    "name": "Qwen (Alibaba)", "category": "foundation-model", "method": "html",
+    "listing_url": "https://qwenlm.github.io/blog/",
+    "link_pattern": "qwenlm\\.github\\.io/blog/[^\"'?#\\s]+$",
+    "base_url": "https://qwenlm.github.io"
+  },
+  {
+    "name": "MiniMax", "category": "foundation-model", "method": "html",
+    "listing_url": "https://www.minimaxi.com/en/news",
+    "link_pattern": "/news/[^\"'?#\\s]+$",
+    "base_url": "https://www.minimaxi.com"
+  },
+  {
+    "name": "Sakana AI", "category": "research", "method": "html",
+    "listing_url": "https://sakana.ai/blog/",
+    "link_pattern": "sakana\\.ai/[a-z][^/?#]+/?$",
+    "base_url": "https://sakana.ai"
+  },
+  {
+    "name": "Moonshot AI", "category": "foundation-model", "method": "html",
+    "listing_url": "https://www.kimi.com/blog/",
+    "link_pattern": "kimi\\.com/blog/[a-z0-9](?:[a-z0-9\\-]*[a-z0-9])?$",
+    "base_url": "https://www.kimi.com"
+  },
+  {
+    "name": "Tessl", "category": "dev-tools", "method": "html",
+    "listing_url": "https://tessl.io/blog/",
+    "link_pattern": "tessl\\.io/blog/[a-z0-9](?:[a-z0-9\\-]*[a-z0-9])?/?$",
+    "base_url": "https://tessl.io"
+  },
+  {
+    "name": "NanoGPT", "category": "infra-data", "method": "html",
+    "listing_url": "https://nano-gpt.com/blog",
+    "link_pattern": "nano-gpt\\.com/blog/[a-z0-9](?:[a-z0-9\\-]*[a-z0-9])?$",
+    "base_url": "https://nano-gpt.com"
+  },
+  {
+    "name": "Modal Labs", "category": "infra-data", "method": "playwright",
+    "listing_url": "https://modal.com/blog",
+    "link_pattern": "modal\\.com/blog/[^/?#]+$"
+  },
+  {
+    "name": "ByteDance", "category": "big-tech", "method": "playwright",
+    "listing_url": "https://www.bytedance.com/en/techblog/",
+    "link_pattern": "bytedance\\.com/en/techblog/[^/?#]+$"
+  },
+  {
+    "name": "Scale AI", "category": "infra-data", "method": "playwright",
+    "listing_url": "https://scale.com/blog",
+    "link_pattern": "scale\\.com/blog/[^/?#]+$"
+  },
+  {
+    "name": "Replit", "category": "dev-tools", "method": "playwright",
+    "listing_url": "https://replit.com/blog",
+    "link_pattern": "replit\\.com/blog/[^/?#]+$"
+  },
+  {
+    "name": "DeepSeek", "category": "foundation-model", "method": "playwright",
+    "listing_url": "https://www.deepseek.com/",
+    "link_pattern": "deepseek\\.com/(news|blog|research)/[^/?#]+$"
+  }
+]

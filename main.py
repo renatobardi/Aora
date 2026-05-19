@@ -19,6 +19,7 @@ from sources import SOURCES
 from config_wizard import run_setup
 from version import VERSION
 from wiki_manager import run_ingest, run_lint, run_query
+from source_manager import list_sources, add_source, remove_source
 
 SEEN_IDS_PATH = "seen_ids.json"
 ERRORS_LOG_PATH = "feed_errors.log"
@@ -174,11 +175,64 @@ def main() -> None:
         help="pergunta a responder (use aspas para frases longas)",
     )
 
+    # --- Source Manager ---
+    source_parser = subparsers.add_parser(
+        "source",
+        help="gerenciar fontes (listar, adicionar, remover)",
+        description="Gerencia as fontes de notícias do Aora (RSS e web scraping).",
+        formatter_class=_HelpFmt,
+    )
+    source_sub = source_parser.add_subparsers(dest="source_cmd", metavar="ação")
+
+    source_sub.add_parser(
+        "list",
+        help="lista todas as fontes configuradas",
+        description="Lista todas as fontes RSS e web scraping configuradas, agrupadas por categoria.",
+        formatter_class=_HelpFmt,
+    )
+
+    source_add_parser = source_sub.add_parser(
+        "add",
+        help="adiciona nova fonte via URL (usa Claude para auto-detectar configuração)",
+        description=(
+            "Analisa uma URL e usa Claude para sugerir a melhor configuração\n"
+            "(RSS, sitemap, HTML ou Playwright). Requer confirmação antes de salvar."
+        ),
+        formatter_class=_HelpFmt,
+    )
+    source_add_parser.add_argument("url", help="URL da fonte a adicionar")
+
+    source_remove_parser = source_sub.add_parser(
+        "remove",
+        help="remove uma fonte (com dupla confirmação)",
+        description="Remove uma fonte pelo nome, com duas etapas de confirmação.",
+        formatter_class=_HelpFmt,
+    )
+    source_remove_parser.add_argument("name", help="nome da fonte a remover")
+
     args = parser.parse_args()
     
     # Compatibilidade com o formato antigo que não usava subparser
     if args.command is None:
         args.command = "all"
+
+    if args.command == "source":
+        if not hasattr(args, "source_cmd") or args.source_cmd is None:
+            source_parser.print_help()
+            sys.exit(0)
+        if args.source_cmd == "list":
+            list_sources()
+        elif args.source_cmd == "add":
+            load_dotenv()
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                print("ERRO: ANTHROPIC_API_KEY não definida. Execute 'aora config' primeiro.")
+                sys.exit(1)
+            client = anthropic.Anthropic(api_key=api_key)
+            add_source(args.url, client)
+        elif args.source_cmd == "remove":
+            remove_source(args.name)
+        sys.exit(0)
 
     if args.command == "config":
         run_setup()
