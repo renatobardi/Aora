@@ -57,7 +57,15 @@ variáveis de ambiente:
   PROCESS_MODE            sync | async    (padrão: sync — async usa Batch API, 50% mais barato)
   OUTPUT_DIR              saída / vault   (padrão: ./output)
   LOOKBACK_HOURS          janela horas    (padrão: 72, máx: 240)
-  MAX_ITEMS_PER_SOURCE    cap por fonte   (padrão: 5, máx: 99)"""
+  MAX_ITEMS_PER_SOURCE    cap por fonte   (padrão: 5, máx: 99)
+
+fontes configuradas em sources.json (RSS) e scraped_sources.json (web)
+use 'aora source list' para listar, 'aora source add <url>' para adicionar"""
+
+_ENV_SOURCE_ADD = """\
+variáveis relevantes:
+  ANTHROPIC_API_KEY    obrigatória
+  ANTHROPIC_MODEL      modelo usado para sugerir a configuração (padrão: claude-haiku-4-5-20251001)"""
 
 _ENV_CLIPPING = """\
 variáveis relevantes:
@@ -102,7 +110,7 @@ def main() -> None:
         "rss",
         help="busca apenas feeds RSS",
         description=(
-            "Coleta apenas os feeds RSS configurados em sources.py.\n"
+            "Coleta apenas os feeds RSS configurados em sources.json.\n"
             "Não executa web scraping."
         ),
         formatter_class=_HelpFmt,
@@ -112,7 +120,7 @@ def main() -> None:
         "web",
         help="executa apenas o web scraping",
         description=(
-            "Executa apenas o web scraping das fontes em scraped_sources.py.\n"
+            "Executa apenas o web scraping das fontes em scraped_sources.json.\n"
             "Não coleta feeds RSS."
         ),
         formatter_class=_HelpFmt,
@@ -179,7 +187,11 @@ def main() -> None:
     source_parser = subparsers.add_parser(
         "source",
         help="gerenciar fontes (listar, adicionar, remover)",
-        description="Gerencia as fontes de notícias do Aora (RSS e web scraping).",
+        description=(
+            "Gerencia as fontes de notícias do Aora.\n\n"
+            "As fontes ficam em sources.json (RSS) e scraped_sources.json (web).\n"
+            "Edite os arquivos diretamente ou use os subcomandos abaixo."
+        ),
         formatter_class=_HelpFmt,
     )
     source_sub = source_parser.add_subparsers(dest="source_cmd", metavar="ação")
@@ -187,7 +199,10 @@ def main() -> None:
     source_sub.add_parser(
         "list",
         help="lista todas as fontes configuradas",
-        description="Lista todas as fontes RSS e web scraping configuradas, agrupadas por categoria.",
+        description=(
+            "Lista todas as fontes RSS e web scraping configuradas,\n"
+            "agrupadas por categoria e ordenadas por CATEGORY_ORDER."
+        ),
         formatter_class=_HelpFmt,
     )
 
@@ -195,20 +210,28 @@ def main() -> None:
         "add",
         help="adiciona nova fonte via URL (usa Claude para auto-detectar configuração)",
         description=(
-            "Analisa uma URL e usa Claude para sugerir a melhor configuração\n"
-            "(RSS, sitemap, HTML ou Playwright). Requer confirmação antes de salvar."
+            "Busca a URL fornecida, detecta feeds RSS e sitemaps disponíveis,\n"
+            "e consulta Claude para sugerir a configuração ideal:\n"
+            "RSS, sitemap, HTML estático ou Playwright (JS-heavy).\n\n"
+            "A sugestão é exibida para revisão antes de ser salva.\n"
+            "URLs sem esquema recebem https:// automaticamente."
         ),
         formatter_class=_HelpFmt,
+        epilog=_ENV_SOURCE_ADD,
     )
     source_add_parser.add_argument("url", help="URL da fonte a adicionar")
 
     source_remove_parser = source_sub.add_parser(
         "remove",
-        help="remove uma fonte (com dupla confirmação)",
-        description="Remove uma fonte pelo nome, com duas etapas de confirmação.",
+        help="remove uma fonte pelo nome (com dupla confirmação)",
+        description=(
+            "Busca a fonte pelo nome (insensível a maiúsculas).\n"
+            "Exibe a configuração completa e solicita duas confirmações antes de remover.\n"
+            "Nomes parciais exibem sugestões sem remover nada."
+        ),
         formatter_class=_HelpFmt,
     )
-    source_remove_parser.add_argument("name", help="nome da fonte a remover")
+    source_remove_parser.add_argument("name", help="nome da fonte a remover (exato ou parcial para sugestões)")
 
     args = parser.parse_args()
     
