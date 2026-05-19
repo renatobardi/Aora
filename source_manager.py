@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import httpx
+from bs4 import BeautifulSoup
 
 from sources import CATEGORY_ORDER, CATEGORY_LABELS
 
@@ -121,23 +122,15 @@ def _probe_url(url: str) -> dict:
         html = r.text[:8000]
         result["html"] = html
 
-        # Look for RSS/Atom link tags
-        rss_links = re.findall(
-            r'<link[^>]+type=["\']application/(rss|atom)\+xml["\'][^>]*href=["\']([^"\']+)["\']',
-            html, re.IGNORECASE,
-        )
-        for _, href in rss_links:
-            result["rss_links"].append(urljoin(url, href))
-
-        # Also find href then type pattern
-        rss_links2 = re.findall(
-            r'<link[^>]+href=["\']([^"\']+)["\'][^>]+type=["\']application/(rss|atom)\+xml["\']',
-            html, re.IGNORECASE,
-        )
-        for href, _ in rss_links2:
-            full = urljoin(url, href)
-            if full not in result["rss_links"]:
-                result["rss_links"].append(full)
+        # Look for RSS/Atom link tags via BeautifulSoup (avoids regex on HTML)
+        soup = BeautifulSoup(html, "html.parser")
+        for mime in ("application/rss+xml", "application/atom+xml"):
+            for link in soup.find_all("link", type=mime):
+                href = link.get("href")
+                if href:
+                    full = urljoin(url, href)
+                    if full not in result["rss_links"]:
+                        result["rss_links"].append(full)
     except Exception:
         pass
 
@@ -156,7 +149,7 @@ def _probe_url(url: str) -> dict:
     try:
         rr = httpx.get(robots_url, follow_redirects=True, timeout=5, headers=headers)
         if rr.status_code == 200:
-            sitemaps = re.findall(r"^Sitemap:\s*(.+)$", rr.text, re.MULTILINE | re.IGNORECASE)
+            sitemaps = re.findall(r"^Sitemap:[ \t]*([^\r\n]+)", rr.text, re.MULTILINE | re.IGNORECASE)
             result["robots_sitemaps"] = [s.strip() for s in sitemaps]
     except Exception:
         pass
@@ -194,8 +187,10 @@ def add_source(url: str, client) -> None:
     raw = response.content[0].text.strip()
 
     # Strip markdown code fences if present
-    raw = re.sub(r"^```(?:json)?\s*", "", raw)
-    raw = re.sub(r"\s*```$", "", raw)
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else ""
+    if raw.endswith("```"):
+        raw = raw.rsplit("```", 1)[0].rstrip()
 
     try:
         suggestion = json.loads(raw)
