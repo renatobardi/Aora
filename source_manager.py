@@ -4,6 +4,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -21,9 +22,14 @@ def _load(path: Path) -> list[dict]:
 
 
 def _save(path: Path, data: list[dict]) -> None:
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-    tmp.replace(path)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, ensure_ascii=False, indent=2))
+        os.replace(tmp_name, path)
+    except Exception:
+        os.unlink(tmp_name)
+        raise
 
 
 # ── LIST ─────────────────────────────────────────────────────────────────────
@@ -227,33 +233,36 @@ def add_source(url: str, client) -> None:
 
 # ── REMOVE ────────────────────────────────────────────────────────────────────
 
+def _lookup_source(name: str, rss: list, web: list) -> tuple[dict | None, bool]:
+    """Return (source_dict, is_rss). Prints suggestions and returns (None, False) if not found."""
+    name_lower = name.lower()
+    rss_match = [s for s in rss if s["name"].lower() == name_lower]
+    web_match = [s for s in web if s["name"].lower() == name_lower]
+    if rss_match or web_match:
+        return (rss_match + web_match)[0], bool(rss_match)
+
+    rss_partial = [s for s in rss if name_lower in s["name"].lower()]
+    web_partial = [s for s in web if name_lower in s["name"].lower()]
+    all_partial = rss_partial + web_partial
+    if all_partial:
+        print(f"\nFonte '{name}' não encontrada. Fontes similares:")
+        for s in all_partial:
+            kind = "rss" if s in rss_partial else s.get("method", "web")
+            print(f"  {s['name']}  [{kind}]")
+    else:
+        print(f"\nFonte '{name}' não encontrada.")
+    return None, False
+
+
 def remove_source(name: str) -> None:
     rss = _load(_SOURCES_PATH)
     web = _load(_SCRAPED_PATH)
 
-    name_lower = name.lower()
-
-    rss_match = [s for s in rss if s["name"].lower() == name_lower]
-    web_match = [s for s in web if s["name"].lower() == name_lower]
-
-    if not rss_match and not web_match:
-        # Try partial match
-        rss_partial = [s for s in rss if name_lower in s["name"].lower()]
-        web_partial = [s for s in web if name_lower in s["name"].lower()]
-        all_partial = rss_partial + web_partial
-        if all_partial:
-            print(f"\nFonte '{name}' não encontrada. Fontes similares:")
-            for s in all_partial:
-                kind = "rss" if s in rss_partial else s.get("method", "web")
-                print(f"  {s['name']}  [{kind}]")
-        else:
-            print(f"\nFonte '{name}' não encontrada.")
+    found, in_rss = _lookup_source(name, rss, web)
+    if found is None:
         return
 
-    found = (rss_match + web_match)[0]
-    in_rss = bool(rss_match)
-
-    print(f"\nFonte encontrada:")
+    print("\nFonte encontrada:")
     print(json.dumps(found, ensure_ascii=False, indent=2))
 
     print()
@@ -262,16 +271,15 @@ def remove_source(name: str) -> None:
         print("Cancelado.")
         return
 
-    c2 = input(f"Digite o nome exato da fonte para confirmar: ").strip()
+    c2 = input("Digite o nome exato da fonte para confirmar: ").strip()
     if c2.lower() != found["name"].lower():
         print("Nome não confere. Cancelado.")
         return
 
+    name_lower = name.lower()
     if in_rss:
-        updated = [s for s in rss if s["name"].lower() != name_lower]
-        _save(_SOURCES_PATH, updated)
+        _save(_SOURCES_PATH, [s for s in rss if s["name"].lower() != name_lower])
     else:
-        updated = [s for s in web if s["name"].lower() != name_lower]
-        _save(_SCRAPED_PATH, updated)
+        _save(_SCRAPED_PATH, [s for s in web if s["name"].lower() != name_lower])
 
     print(f"\nFonte '{found['name']}' removida com sucesso.")
