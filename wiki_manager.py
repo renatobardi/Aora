@@ -43,6 +43,9 @@ def get_unprocessed_raw_files(vault_path: Path) -> list[Path]:
 
 
 def _run_claude(prompt: str, vault_path: Path, timeout: int = 600) -> int:
+    # Remove API keys from the subprocess env so claude -p uses the Pro
+    # subscription instead of billing against the Anthropic API credits.
+    env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY")}
     try:
         result = subprocess.run(
             [
@@ -52,6 +55,7 @@ def _run_claude(prompt: str, vault_path: Path, timeout: int = 600) -> int:
             cwd=str(vault_path),
             check=False,
             timeout=timeout,
+            env=env,
         )
         return result.returncode
     except subprocess.TimeoutExpired:
