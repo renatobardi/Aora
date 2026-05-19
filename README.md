@@ -85,9 +85,26 @@ To run Aora automatically every day, see **[AUTOMATION.md](AUTOMATION.md)** for 
 - macOS LaunchAgent (recommended for local use — survives sleep)
 - crontab (Linux / macOS)
 
-## Adding sources
+## Managing sources
 
-See [CLAUDE.md](CLAUDE.md) for the scraper architecture and instructions on adding RSS feeds (`sources.py`) or scraped websites (`scraped_sources.py`).
+Sources are stored in `sources.json` (RSS) and `scraped_sources.json` (web scraping) — plain JSON files you can edit directly.
+
+The CLI provides three commands for source management:
+
+```bash
+# List all configured sources grouped by category
+python3 main.py source list
+
+# Add a new source — Claude auto-detects RSS / sitemap / HTML / Playwright
+python3 main.py source add https://example.com/blog
+
+# Remove a source (two-step confirmation)
+python3 main.py source remove "Source Name"
+```
+
+`source add` fetches the URL, probes for RSS link tags and `sitemap.xml`, then asks the configured Claude model to suggest the best scraping strategy. You review the suggestion before it's saved.
+
+See [SOURCE_NOTES.md](SOURCE_NOTES.md) for context on special flags (`parser: lxml`, `fetch_dates`, etc.) and why certain sources aren't covered via RSS.
 
 ## License
 

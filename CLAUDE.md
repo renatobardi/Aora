@@ -21,6 +21,11 @@ python main.py all              # same as above
 python main.py rss              # RSS only
 python main.py web              # web scraping only
 
+# Source management
+python main.py source list              # list all sources grouped by category
+python main.py source add <url>         # add source (Claude auto-detects method)
+python main.py source remove <name>     # remove source (two-step confirmation)
+
 # Wiki Manager (delegates to claude -p "..." internally)
 python main.py ingest <file>    # ingest a raw clipping file into the wiki
 python main.py lint             # audit wiki for contradictions and orphan pages
@@ -49,9 +54,10 @@ print(items, errors)
 ```
 main.py  (subcommand router + clipping orchestrator)
   ├── config_wizard.py  (interactive .env setup)
+  ├── source_manager.py (source list / add / remove)
   ├── wiki_manager.py   (ingest / lint / query — delegates to claude -p)
-  ├── fetcher.py        (RSS via sources.py)
-  └── scraper.py        (web via scraped_sources.py)
+  ├── fetcher.py        (RSS via sources.json)
+  └── scraper.py        (web via scraped_sources.json)
        ├── sitemap_scraper.py
        ├── html_scraper.py
        └── playwright_scraper.py
@@ -59,8 +65,11 @@ main.py  (subcommand router + clipping orchestrator)
   └── renderer.py       (Markdown output)
 ```
 
-- **`sources.py`** — RSS feed list (`SOURCES`) + `CATEGORY_ORDER` / `CATEGORY_LABELS`
-- **`scraped_sources.py`** — Web scraping config list (`SCRAPED_SOURCES`); each entry has `method: "sitemap" | "html" | "playwright"` and method-specific keys
+- **`sources.json`** — RSS feed list (27 feeds); loaded by `sources.py` at import time
+- **`scraped_sources.json`** — Web scraping config list (31 sources); loaded by `scraped_sources.py` at import time
+- **`sources.py`** — Loads `sources.json` + defines `CATEGORY_ORDER` / `CATEGORY_LABELS`
+- **`scraped_sources.py`** — Loads `scraped_sources.json`; each entry has `method: "sitemap" | "html" | "playwright"` and method-specific keys
+- **`source_manager.py`** — `list_sources`, `add_source` (probes URL + calls Claude to suggest config), `remove_source` (two-step confirmation, atomic write); see `SOURCE_NOTES.md` for flag context
 - **`fetcher.py`** — RSS fetch via `feedparser`; falls back to `trafilatura` when summary < 200 chars; deduplication via `seen_ids`
 - **`scraper.py`** — Dispatcher: routes each `SCRAPED_SOURCE` entry to the right scraper based on `method`
 - **`sitemap_scraper.py`** — Fetches XML sitemaps (handles sitemap indexes, `lxml` fallback, `fetch_dates`, `fix_protocol`, `sub_pattern` quirks); extracts content with `trafilatura`
@@ -104,9 +113,20 @@ Expected directory structure inside the vault:
 
 ---
 
-## Adding a new scraped source
+## Adding or removing sources
 
-Add an entry to `SCRAPED_SOURCES` in `scraped_sources.py`. Required keys by method:
+**Recommended — use the CLI** (Claude auto-detects the right method):
+
+```bash
+python main.py source add https://example.com/blog
+python main.py source remove "Source Name"
+python main.py source list
+```
+
+**Manual edit** — sources live in plain JSON files:
+
+- **`sources.json`** — RSS feeds. Each entry: `{"name", "feed_url", "category"}`
+- **`scraped_sources.json`** — Web sources. Each entry requires `name`, `category`, `method`, plus method-specific keys:
 
 | method | Required keys |
 |---|---|
@@ -114,9 +134,11 @@ Add an entry to `SCRAPED_SOURCES` in `scraped_sources.py`. Required keys by meth
 | `html` | `listing_url`, `link_pattern`, `base_url` |
 | `playwright` | `listing_url`, `link_pattern` |
 
-Optional sitemap keys: `parser: "lxml"` (invalid XML), `fetch_dates: True` (no `lastmod`), `fix_protocol: True` (missing `https://`), `sub_pattern` (filter sub-sitemaps by substring).
+Optional sitemap keys: `parser: "lxml"` (invalid XML), `fetch_dates: true` (no `lastmod`), `fix_protocol: true` (missing scheme), `sub_pattern` (filter sub-sitemaps by substring).
 
 Optional playwright key: `wait_until` — Playwright load event (`"networkidle"` default; use `"domcontentloaded"` for SPAs that never stop making requests).
+
+See **[SOURCE_NOTES.md](SOURCE_NOTES.md)** for context on why specific flags exist and which sources intentionally lack RSS coverage.
 
 ## Key behaviors
 
