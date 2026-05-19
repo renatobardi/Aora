@@ -18,6 +18,10 @@ class BaseProvider(ABC):
     def name(self) -> str:
         ...
 
+    @property
+    def supports_batch(self) -> bool:
+        return False
+
     @abstractmethod
     def generate(self, model: str, system: str, user: str, max_tokens: int) -> GenerateResult:
         ...
@@ -25,14 +29,18 @@ class BaseProvider(ABC):
 
 class AnthropicProvider(BaseProvider):
     def __init__(self, client) -> None:
-        self._client = client
+        self.client = client
 
     @property
     def name(self) -> str:
         return "anthropic"
 
+    @property
+    def supports_batch(self) -> bool:
+        return True
+
     def generate(self, model: str, system: str, user: str, max_tokens: int) -> GenerateResult:
-        response = self._client.messages.create(
+        response = self.client.messages.create(
             model=model,
             max_tokens=max_tokens,
             system=[
@@ -55,7 +63,7 @@ class AnthropicProvider(BaseProvider):
 
 class GoogleProvider(BaseProvider):
     def __init__(self, client) -> None:
-        self._client = client
+        self.client = client
 
     @property
     def name(self) -> str:
@@ -64,7 +72,7 @@ class GoogleProvider(BaseProvider):
     def generate(self, model: str, system: str, user: str, max_tokens: int) -> GenerateResult:
         from google.genai import types  # noqa: PLC0415
 
-        response = self._client.models.generate_content(
+        response = self.client.models.generate_content(
             model=model,
             contents=user,
             config=types.GenerateContentConfig(

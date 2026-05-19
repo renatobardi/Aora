@@ -10,7 +10,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from fetcher import fetch_all, load_seen_ids, save_seen_ids
-from processor import estimate_cost, process_all, _get_model
+from processor import estimate_cost, process_all, get_model
 from provider import create_provider
 from renderer import render_daily
 from scraper import scrape_all
@@ -354,7 +354,7 @@ def main() -> None:
 
     # 3. Process new items with LLM
     provider = create_provider(ai_provider, api_key)
-    model = _get_model(provider)
+    model = get_model(provider)
     print(f"Processando com {model} ({ai_provider})...")
     enriched, total_input, total_output, total_cache, is_async = process_all(new_items, provider)
     print()

@@ -5,7 +5,7 @@ import os
 import re
 import time
 
-from provider import AnthropicProvider, BaseProvider
+from provider import BaseProvider
 
 MAX_TOKENS = 300
 
@@ -42,7 +42,7 @@ _GOOGLE_PRICING: dict[str, tuple[float, float]] = {
 }
 
 
-def _get_model(provider: BaseProvider) -> str:
+def get_model(provider: BaseProvider) -> str:
     if provider.name == "google":
         return os.getenv("GOOGLE_MODEL", "gemini-2.5-flash-lite")
     return os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
@@ -110,7 +110,7 @@ def estimate_cost(
 
 def process_item_sync(item: dict, provider: BaseProvider) -> dict:
     user_message = _build_user_message(item)
-    model = _get_model(provider)
+    model = get_model(provider)
 
     try:
         result = provider.generate(
@@ -140,16 +140,16 @@ def process_item_sync(item: dict, provider: BaseProvider) -> dict:
 def process_all_async(
     items: list[dict], provider: BaseProvider
 ) -> tuple[list[dict], int, int, int]:
-    """Anthropic Batch API — 50% discount. Only available for AnthropicProvider."""
-    if not isinstance(provider, AnthropicProvider):
-        print("  [AVISO] Batch API não disponível para Google. Usando modo síncrono.")
+    """Anthropic Batch API — 50% discount. Only available when provider.supports_batch."""
+    if not provider.supports_batch:
+        print("  [AVISO] Batch API não disponível para este provider. Usando modo síncrono.")
         return process_all_sync(items, provider)
 
     if not items:
         return [], 0, 0, 0
 
-    client = provider._client
-    model = _get_model(provider)
+    client = provider.client
+    model = get_model(provider)
 
     print("  Preparando Batch API para 50% de desconto...")
     requests = []
@@ -252,7 +252,7 @@ def process_all(
 
     if mode == "async":
         enriched, inp, out, cache = process_all_async(items, provider)
-        return enriched, inp, out, cache, isinstance(provider, AnthropicProvider)
+        return enriched, inp, out, cache, provider.supports_batch
     else:
         enriched, inp, out, cache = process_all_sync(items, provider)
         return enriched, inp, out, cache, False

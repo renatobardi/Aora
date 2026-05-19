@@ -32,7 +32,7 @@ import processor as proc  # noqa: E402
 from processor import (  # noqa: E402
     _ANTHROPIC_PRICING,
     _GOOGLE_PRICING,
-    _get_model,
+    get_model,
     estimate_cost,
     process_all,
     process_all_async,
@@ -279,7 +279,7 @@ class TestCreateProvider:
         _genai_stub.Client.assert_called_with(api_key="AIza-test456")
 
 
-# ── _get_model ────────────────────────────────────────────────────────────────
+# ── get_model ─────────────────────────────────────────────────────────────────
 
 class TestGetModel:
     def test_anthropic_default(self):
@@ -287,28 +287,28 @@ class TestGetModel:
         provider.name = "anthropic"
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("ANTHROPIC_MODEL", None)
-            assert _get_model(provider) == "claude-haiku-4-5-20251001"
+            assert get_model(provider) == "claude-haiku-4-5-20251001"
 
     def test_google_default(self):
         provider = MagicMock()
         provider.name = "google"
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("GOOGLE_MODEL", None)
-            assert _get_model(provider) == "gemini-2.5-flash-lite"
+            assert get_model(provider) == "gemini-2.5-flash-lite"
 
     @pytest.mark.parametrize("model", ANTHROPIC_MODELS)
     def test_anthropic_env_override(self, model):
         provider = MagicMock()
         provider.name = "anthropic"
         with patch.dict(os.environ, {"ANTHROPIC_MODEL": model}):
-            assert _get_model(provider) == model
+            assert get_model(provider) == model
 
     @pytest.mark.parametrize("model", GOOGLE_MODELS)
     def test_google_env_override(self, model):
         provider = MagicMock()
         provider.name = "google"
         with patch.dict(os.environ, {"GOOGLE_MODEL": model}):
-            assert _get_model(provider) == model
+            assert get_model(provider) == model
 
 
 # ── estimate_cost ─────────────────────────────────────────────────────────────
@@ -435,7 +435,7 @@ class TestProcessItemSync:
         provider = MagicMock()
         provider.name = "anthropic"
         provider.generate.side_effect = Exception("API error")
-        with patch("processor._get_model", return_value="claude-haiku-4-5-20251001"):
+        with patch("processor.get_model", return_value="claude-haiku-4-5-20251001"):
             result = process_item_sync(SAMPLE_ITEM.copy(), provider)
         assert result["tokens_input"] == 0
         assert result["tldr"] != ""  # fallback uses content/title
@@ -558,8 +558,9 @@ class TestProcessAllAsync:
 
     def test_google_falls_back_to_sync(self, capsys):
         items = [SAMPLE_ITEM.copy() for _ in range(2)]
-        provider = MagicMock(spec=["name", "generate"])
+        provider = MagicMock(spec=["name", "generate", "supports_batch"])
         provider.name = "google"
+        provider.supports_batch = False
         provider.generate.return_value = GenerateResult(
             text=VALID_RESPONSE, input_tokens=50, output_tokens=20
         )
@@ -569,8 +570,9 @@ class TestProcessAllAsync:
 
     def test_google_fallback_enriches_all_items(self):
         items = [SAMPLE_ITEM.copy() for _ in range(3)]
-        provider = MagicMock(spec=["name", "generate"])
+        provider = MagicMock(spec=["name", "generate", "supports_batch"])
         provider.name = "google"
+        provider.supports_batch = False
         provider.generate.return_value = GenerateResult(
             text=VALID_RESPONSE, input_tokens=50, output_tokens=20
         )
@@ -631,8 +633,9 @@ class TestProcessAll:
 
     def test_async_mode_google_returns_is_async_false(self):
         items = [SAMPLE_ITEM.copy()]
-        provider = MagicMock(spec=["name", "generate"])
+        provider = MagicMock(spec=["name", "generate", "supports_batch"])
         provider.name = "google"
+        provider.supports_batch = False
         provider.generate.return_value = GenerateResult(
             text=VALID_RESPONSE, input_tokens=10, output_tokens=5
         )

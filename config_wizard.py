@@ -36,6 +36,12 @@ def run_setup() -> None:
         selected_provider = "google" if provider_choice == "2" else "anthropic"
         env_vars["AI_PROVIDER"] = selected_provider
 
+        # Clean up model key of the previous provider to avoid stale vars
+        if selected_provider == "google":
+            env_vars.pop("ANTHROPIC_MODEL", None)
+        else:
+            env_vars.pop("GOOGLE_MODEL", None)
+
         # 2. Model
         if selected_provider == "google":
             print("\n2. Modelo do Google Gemini")

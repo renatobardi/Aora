@@ -192,7 +192,7 @@ def _validate_config(source_type: str, config: dict) -> list[str]:
 
 
 def add_source(url: str, provider: BaseProvider) -> None:
-    from processor import _get_model  # noqa: PLC0415
+    from processor import get_model  # noqa: PLC0415
 
     url = _normalize_url(url)
     print(f"\nAnalisando {url} ...")
@@ -213,7 +213,7 @@ def add_source(url: str, provider: BaseProvider) -> None:
 
     print("Consultando IA para sugerir configuração...")
     result = provider.generate(
-        model=_get_model(provider),
+        model=get_model(provider),
         system=_SYSTEM_PROMPT,
         user=user_message,
         max_tokens=1024,
