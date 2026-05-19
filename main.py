@@ -55,8 +55,9 @@ variáveis de ambiente:
   AI_PROVIDER             provedor de IA  (padrão: anthropic | google)
   ANTHROPIC_API_KEY       obrigatória se AI_PROVIDER=anthropic
   GOOGLE_API_KEY          obrigatória se AI_PROVIDER=google
-  ANTHROPIC_MODEL         modelo LLM      (padrão: claude-haiku-4-5-20251001)
-  PROCESS_MODE            sync | async    (padrão: sync — async usa Batch API, 50% mais barato)
+  ANTHROPIC_MODEL         modelo Anthropic  (padrão: claude-haiku-4-5-20251001)
+  GOOGLE_MODEL            modelo Google     (padrão: gemini-2.5-flash-lite)
+  PROCESS_MODE            sync | async    (padrão: sync — async é Anthropic-only, 50% mais barato)
   OUTPUT_DIR              saída / vault   (padrão: ./output)
   LOOKBACK_HOURS          janela horas    (padrão: 72, máx: 240)
   MAX_ITEMS_PER_SOURCE    cap por fonte   (padrão: 5, máx: 99)
@@ -68,13 +69,18 @@ _ENV_SOURCE_ADD = """\
 variáveis relevantes:
   AI_PROVIDER          provedor de IA (padrão: anthropic | google)
   ANTHROPIC_API_KEY    obrigatória se AI_PROVIDER=anthropic
-  GOOGLE_API_KEY       obrigatória se AI_PROVIDER=google"""
+  GOOGLE_API_KEY       obrigatória se AI_PROVIDER=google
+  ANTHROPIC_MODEL      modelo Anthropic  (padrão: claude-haiku-4-5-20251001)
+  GOOGLE_MODEL         modelo Google     (padrão: gemini-2.5-flash-lite)"""
 
 _ENV_CLIPPING = """\
 variáveis relevantes:
+  AI_PROVIDER             provedor de IA            (padrão: anthropic | google)
+  ANTHROPIC_API_KEY       obrigatória se AI_PROVIDER=anthropic
+  GOOGLE_API_KEY          obrigatória se AI_PROVIDER=google
   LOOKBACK_HOURS          janela de busca em horas  (padrão: 72, máx: 240)
   MAX_ITEMS_PER_SOURCE    cap de itens por fonte    (padrão: 5, máx: 99)
-  PROCESS_MODE            sync | async              (padrão: sync)
+  PROCESS_MODE            sync | async              (padrão: sync — async é Anthropic-only)
   OUTPUT_DIR              diretório de saída        (padrão: ./output)"""
 
 _ENV_WIKI = """\
@@ -88,7 +94,7 @@ def main() -> None:
         prog="aora",
         description=(
             "Aora — AI Clipping & Wiki Manager\n\n"
-            "Busca conteúdo de ~50 fontes de IA, resume com Claude Haiku\n"
+            "Busca conteúdo de ~50 fontes de IA, resume com LLM\n"
             "e gera um arquivo Markdown diário para Obsidian."
         ),
         formatter_class=_HelpFmt,
@@ -134,7 +140,7 @@ def main() -> None:
         help="assistente interativo de configuração (.env)",
         description=(
             "Abre o wizard interativo para criar ou atualizar o arquivo .env.\n"
-            "Configure ANTHROPIC_API_KEY, OUTPUT_DIR, LOOKBACK_HOURS e outros parâmetros."
+            "Configure AI_PROVIDER, API keys, OUTPUT_DIR, LOOKBACK_HOURS e outros parâmetros."
         ),
         formatter_class=_HelpFmt,
     )
@@ -142,7 +148,7 @@ def main() -> None:
     # --- Wiki Manager ---
     ingest_parser = subparsers.add_parser(
         "ingest",
-        help="ingere arquivo(s) raw na wiki via Claude",
+        help="ingere arquivo(s) raw na wiki via claude -p",
         description=(
             "Ingere arquivos raw não processados na wiki via claude -p.\n"
             "Sem argumento: processa todos os raw/*.md ainda não registrados em wiki/log.md."
@@ -211,10 +217,10 @@ def main() -> None:
 
     source_add_parser = source_sub.add_parser(
         "add",
-        help="adiciona nova fonte via URL (usa Claude para auto-detectar configuração)",
+        help="adiciona nova fonte via URL (usa IA para auto-detectar configuração)",
         description=(
             "Busca a URL fornecida, detecta feeds RSS e sitemaps disponíveis,\n"
-            "e consulta Claude para sugerir a configuração ideal:\n"
+            "e consulta a IA para sugerir a configuração ideal:\n"
             "RSS, sitemap, HTML estático ou Playwright (JS-heavy).\n\n"
             "A sugestão é exibida para revisão antes de ser salva.\n"
             "URLs sem esquema recebem https:// automaticamente."
@@ -246,6 +252,10 @@ def main() -> None:
         if not hasattr(args, "source_cmd") or args.source_cmd is None:
             source_parser.print_help()
             sys.exit(0)
+        print("\n" + "="*50)
+        print("  █▀█ █▀█ █▀█ █▀█  :: Source Manager")
+        print(f"  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping v{VERSION}")
+        print("="*50 + "\n")
         if args.source_cmd == "list":
             list_sources()
         elif args.source_cmd == "add":
