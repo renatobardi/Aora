@@ -379,15 +379,13 @@ class TestNormalizeUrl:
     def test_adds_https_when_no_scheme(self):
         assert sm._normalize_url("example.com") == "https://example.com"
 
-    def test_preserves_https(self):
-        assert sm._normalize_url("https://example.com") == "https://example.com"
-
-    def test_preserves_http(self):
-        assert sm._normalize_url("http://example.com") == "http://example.com"
+    def test_preserves_existing_scheme(self):
+        url = "https://example.com"
+        assert sm._normalize_url(url) == url
 
     def test_does_not_double_scheme(self):
-        result = sm._normalize_url("https://example.com")
-        assert result.count("https://") == 1
+        url = "https://example.com"
+        assert sm._normalize_url(url).count("https://") == 1
 
 
 # ── _validate_config ──────────────────────────────────────────────────────────

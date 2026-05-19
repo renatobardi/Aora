@@ -127,7 +127,7 @@ ou
 
 def _normalize_url(url: str) -> str:
     """Ensure URL has a scheme; default to https if missing."""
-    if not url.startswith(("http://", "https://")):
+    if "://" not in url:
         url = "https://" + url
     return url
 
