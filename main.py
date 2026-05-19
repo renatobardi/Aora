@@ -52,7 +52,9 @@ _HelpFmt = argparse.RawDescriptionHelpFormatter
 
 _ENV_ALL = """\
 variáveis de ambiente:
-  ANTHROPIC_API_KEY       obrigatória
+  AI_PROVIDER             provedor de IA  (padrão: anthropic | google)
+  ANTHROPIC_API_KEY       obrigatória se AI_PROVIDER=anthropic
+  GOOGLE_API_KEY          obrigatória se AI_PROVIDER=google
   ANTHROPIC_MODEL         modelo LLM      (padrão: claude-haiku-4-5-20251001)
   PROCESS_MODE            sync | async    (padrão: sync — async usa Batch API, 50% mais barato)
   OUTPUT_DIR              saída / vault   (padrão: ./output)
@@ -64,8 +66,9 @@ use 'aora source list' para listar, 'aora source add <url>' para adicionar"""
 
 _ENV_SOURCE_ADD = """\
 variáveis relevantes:
-  ANTHROPIC_API_KEY    obrigatória
-  ANTHROPIC_MODEL      modelo usado para sugerir a configuração (padrão: claude-haiku-4-5-20251001)"""
+  AI_PROVIDER          provedor de IA (padrão: anthropic | google)
+  ANTHROPIC_API_KEY    obrigatória se AI_PROVIDER=anthropic
+  GOOGLE_API_KEY       obrigatória se AI_PROVIDER=google"""
 
 _ENV_CLIPPING = """\
 variáveis relevantes:

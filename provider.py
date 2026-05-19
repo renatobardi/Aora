@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -90,7 +91,12 @@ class GoogleProvider(BaseProvider):
 
 def create_provider(provider_name: str, api_key: str) -> BaseProvider:
     if provider_name == "google":
-        from google import genai  # noqa: PLC0415
+        try:
+            from google import genai  # noqa: PLC0415
+        except ImportError:
+            print("ERRO: pacote 'google-genai' não instalado.")
+            print("Execute: pip install google-genai>=1.0.0")
+            sys.exit(1)
 
         client = genai.Client(api_key=api_key)
         return GoogleProvider(client)
