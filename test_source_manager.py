@@ -33,7 +33,7 @@ def tmp_jsons(tmp_path):
         yield tmp_src, tmp_scr
 
 
-def _make_provider(response_json: dict) -> MagicMock:
+def _make_provider(response_json: dict | list) -> MagicMock:
     """Build a fake BaseProvider that returns a fixed JSON string."""
     provider = MagicMock()
     provider.generate.return_value = GenerateResult(
@@ -372,6 +372,89 @@ class TestAddSourceEdgeCases:
             pytest.raises(SystemExit),
         ):
             sm.add_source("https://example.com", provider)
+
+    # ── multi-config (array response) ─────────────────────────────────────────
+
+    def test_array_response_adds_rss_and_web(self, tmp_jsons):
+        tmp_src, tmp_scr = tmp_jsons
+        rss_cfg = {"name": "Multi Test RSS", "feed_url": "https://multi.com/feed.xml", "category": "media"}
+        web_cfg = {
+            "name": "Multi Test Web",
+            "category": "media",
+            "method": "sitemap",
+            "sitemap_url": "https://multi.com/sitemap.xml",
+            "url_pattern": r"/posts/\d+",
+        }
+        provider = _make_provider([
+            {"type": "rss", "config": rss_cfg},
+            {"type": "web", "config": web_cfg},
+        ])
+        with (
+            patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
+            patch("builtins.input", return_value="s"),
+        ):
+            sm.add_source("https://multi.com", provider)
+
+        rss_names = [s["name"] for s in json.loads(tmp_src.read_text())]
+        web_names = [s["name"] for s in json.loads(tmp_scr.read_text())]
+        assert rss_cfg["name"] in rss_names
+        assert web_cfg["name"] in web_names
+
+    def test_array_cancelled_writes_nothing(self, tmp_jsons):
+        tmp_src, tmp_scr = tmp_jsons
+        orig_rss = json.loads(tmp_src.read_text())
+        orig_web = json.loads(tmp_scr.read_text())
+        rss_cfg = {"name": "Cancel Test RSS", "feed_url": "https://x.com/f", "category": "media"}
+        web_cfg = {
+            "name": "Cancel Test Web",
+            "category": "media",
+            "method": "sitemap",
+            "sitemap_url": "https://x.com/sitemap.xml",
+            "url_pattern": r"/p/\d+",
+        }
+        provider = _make_provider([
+            {"type": "rss", "config": rss_cfg},
+            {"type": "web", "config": web_cfg},
+        ])
+        with (
+            patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
+            patch("builtins.input", return_value="N"),
+        ):
+            sm.add_source("https://x.com", provider)
+        assert json.loads(tmp_src.read_text()) == orig_rss
+        assert json.loads(tmp_scr.read_text()) == orig_web
+
+    def test_array_with_invalid_entry_skips_invalid_saves_valid(self, tmp_jsons, capsys):
+        tmp_src, _ = tmp_jsons
+        valid_rss = {"name": "Partial Valid", "feed_url": "https://pv.com/feed", "category": "media"}
+        invalid_web = {"name": "Bad Web", "method": "sitemap"}  # missing sitemap_url, url_pattern
+        provider = _make_provider([
+            {"type": "rss", "config": valid_rss},
+            {"type": "web", "config": invalid_web},
+        ])
+        with (
+            patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
+            patch("builtins.input", return_value="s"),
+        ):
+            sm.add_source("https://pv.com", provider)
+        rss_names = [s["name"] for s in json.loads(tmp_src.read_text())]
+        assert valid_rss["name"] in rss_names
+        out = capsys.readouterr().out
+        assert "WARN" in out
+
+    def test_array_all_invalid_exits(self, tmp_jsons):
+        provider = _make_provider([
+            {"type": "rss", "config": {"name": "X"}},   # missing feed_url, category
+            {"type": "web", "config": {"name": "Y"}},   # missing method etc.
+        ])
+        with (
+            patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
+            pytest.raises(SystemExit),
+        ):
+            sm.add_source("https://example.com", provider)
+
+    def test_system_prompt_documents_array_format(self):
+        assert '{"type": "rss"' in sm._SYSTEM_PROMPT or "[{" in sm._SYSTEM_PROMPT
 
 
 # ── _normalize_url ────────────────────────────────────────────────────────────

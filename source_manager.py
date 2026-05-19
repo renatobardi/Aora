@@ -115,15 +115,18 @@ TIPOS DE FONTE:
    config opcional: wait_until (padrão: "networkidle"; use "domcontentloaded" para SPAs que nunca param)
 
 REGRAS:
-- Prefira RSS quando disponível e ativo.
+- Se a página tem feed RSS ativo, SEMPRE inclua uma entrada "rss".
+- Se a página também tem sitemap ou estrutura scrapeável via HTML/Playwright, inclua TAMBÉM uma entrada "web".
+- Retorne um array JSON quando sugerir múltiplas configs; um único objeto quando for apenas uma.
 - url_pattern e link_pattern devem ser regex Python (sem /delimitadores/), escapar \\ para \\\\
 - url_pattern deve filtrar apenas posts de blog/notícias, excluindo páginas de categoria, tags, etc.
 - Sempre tente inferir um bom url_pattern baseado na estrutura de URLs vista no HTML.
 
-Responda APENAS com JSON válido neste formato (sem markdown, sem explicação):
+Responda APENAS com JSON válido (sem markdown, sem explicação).
+Formato para uma única config:
 {"type": "rss", "config": {"name": "...", "feed_url": "...", "category": "..."}}
-ou
-{"type": "web", "config": {"name": "...", "category": "...", "method": "...", ...}}"""
+Formato para múltiplas configs (RSS + web):
+[{"type": "rss", "config": {...}}, {"type": "web", "config": {...}}]"""
 
 
 def _normalize_url(url: str) -> str:
@@ -154,7 +157,7 @@ def _probe_url(url: str) -> dict:
                     if full not in result["rss_links"]:
                         result["rss_links"].append(full)
     except Exception:
-        print("Aviso: não foi possível acessar a URL — sugestão de Claude pode ser imprecisa.")
+        print("Aviso: não foi possível acessar a URL — sugestão da IA pode ser imprecisa.")
 
     # Try sitemap.xml
     base = urlparse(url)
@@ -216,7 +219,7 @@ def add_source(url: str, provider: BaseProvider) -> None:
         model=get_model(provider),
         system=_SYSTEM_PROMPT,
         user=user_message,
-        max_tokens=1024,
+        max_tokens=2048,
     )
 
     raw = result.text.strip()
@@ -228,52 +231,70 @@ def add_source(url: str, provider: BaseProvider) -> None:
         raw = raw.rsplit("```", 1)[0].rstrip()
 
     try:
-        suggestion = json.loads(raw)
+        parsed = json.loads(raw)
     except json.JSONDecodeError:
-        print(f"ERRO: Claude retornou resposta inválida:\n{raw}")
+        print(f"ERRO: IA retornou resposta inválida:\n{raw}")
         sys.exit(1)
 
-    source_type = suggestion.get("type")
-    config = suggestion.get("config", {})
+    # Normalize to list — AI may return a single object or an array
+    suggestions = parsed if isinstance(parsed, list) else [parsed]
 
-    if source_type not in ("rss", "web"):
-        print(f"ERRO: tipo de fonte inválido '{source_type}'")
+    valid: list[dict] = []
+    for i, s in enumerate(suggestions, 1):
+        stype = s.get("type")
+        cfg = s.get("config", {})
+        if stype not in ("rss", "web"):
+            print(f"  [WARN] sugestão {i}: tipo inválido '{stype}', ignorando")
+            continue
+        missing = _validate_config(stype, cfg)
+        if missing:
+            print(f"  [WARN] sugestão {i}: campos faltando ({', '.join(missing)}), ignorando")
+            continue
+        valid.append(s)
+
+    if not valid:
+        print("ERRO: nenhuma sugestão válida retornada pela IA.")
         sys.exit(1)
 
-    missing = _validate_config(source_type, config)
-    if missing:
-        print(f"ERRO: config sugerido por Claude está incompleto. Campos faltando: {', '.join(missing)}")
-        print("Sugestão recebida:")
-        print(json.dumps(suggestion, ensure_ascii=False, indent=2))
-        sys.exit(1)
-
-    print("\nSugestão de Claude:")
-    print(json.dumps(suggestion, ensure_ascii=False, indent=2))
+    label_n = f"{len(valid)} config(s)" if len(valid) > 1 else "1 config"
+    print(f"\nSugestão da IA ({label_n}):")
+    display = valid if len(valid) > 1 else valid[0]
+    print(json.dumps(display, ensure_ascii=False, indent=2))
 
     print()
-    confirm = input("Adicionar essa fonte? [s/N] ").strip().lower()
+    label_verb = "essas fontes" if len(valid) > 1 else "essa fonte"
+    confirm = input(f"Adicionar {label_verb}? [s/N] ").strip().lower()
     if confirm not in ("s", "sim", "y", "yes"):
         print("Cancelado.")
         return
 
-    if source_type == "rss":
-        sources = _load(_SOURCES_PATH)
-        existing_names = {s["name"].lower() for s in sources}
-        if config["name"].lower() in existing_names:
-            print(f"ERRO: fonte '{config['name']}' já existe em sources.json.")
-            return
-        sources.append(config)
-        _save(_SOURCES_PATH, sources)
-        print(f"\nFonte '{config['name']}' adicionada a sources.json.")
-    else:
-        sources = _load(_SCRAPED_PATH)
-        existing_names = {s["name"].lower() for s in sources}
-        if config["name"].lower() in existing_names:
-            print(f"ERRO: fonte '{config['name']}' já existe em scraped_sources.json.")
-            return
-        sources.append(config)
-        _save(_SCRAPED_PATH, sources)
-        print(f"\nFonte '{config['name']}' adicionada a scraped_sources.json.")
+    rss_list: list[dict] | None = None
+    web_list: list[dict] | None = None
+
+    for s in valid:
+        stype = s["type"]
+        cfg = s["config"]
+        if stype == "rss":
+            if rss_list is None:
+                rss_list = _load(_SOURCES_PATH)
+            if cfg["name"].lower() in {e["name"].lower() for e in rss_list}:
+                print(f"  [SKIP] '{cfg['name']}' já existe em sources.json.")
+            else:
+                rss_list.append(cfg)
+                print(f"  [OK] '{cfg['name']}' → sources.json")
+        else:
+            if web_list is None:
+                web_list = _load(_SCRAPED_PATH)
+            if cfg["name"].lower() in {e["name"].lower() for e in web_list}:
+                print(f"  [SKIP] '{cfg['name']}' já existe em scraped_sources.json.")
+            else:
+                web_list.append(cfg)
+                print(f"  [OK] '{cfg['name']}' → scraped_sources.json")
+
+    if rss_list is not None:
+        _save(_SOURCES_PATH, rss_list)
+    if web_list is not None:
+        _save(_SCRAPED_PATH, web_list)
 
 
 # ── REMOVE ────────────────────────────────────────────────────────────────────
