@@ -58,7 +58,7 @@ def _print_menu(env_vars: dict) -> None:
     print(f"  [5] Pasta de saída:    {output_dir}")
     print(f"  [6] Lookback (horas):  {lookback}")
     print(f"  [7] Limite por fonte:  {max_items}")
-    print(f"  [8] Instalação global")
+    print("  [8] Instalação global")
     print("=" * 50)
 
 
@@ -185,7 +185,7 @@ def _edit_output_dir(env_vars: dict) -> None:
 def _edit_lookback(env_vars: dict) -> None:
     print("\n  Janela de Busca (em horas)")
     current = env_vars.get("LOOKBACK_HOURS", "72")
-    print(f"  Quão antigas podem ser as notícias? [1–240]")
+    print("  Quão antigas podem ser as notícias? [1–240]")
     new_val = input(f"  Digite as horas (ou Enter para {current}): ").strip()
     if new_val:
         try:
@@ -200,7 +200,7 @@ def _edit_lookback(env_vars: dict) -> None:
 def _edit_max_items(env_vars: dict) -> None:
     print("\n  Limite de Notícias por Fonte")
     current = env_vars.get("MAX_ITEMS_PER_SOURCE", "5")
-    print(f"  Máximo de itens por feed/site para evitar spam [1–99]")
+    print("  Máximo de itens por feed/site para evitar spam [1–99]")
     new_val = input(f"  Digite o limite (ou Enter para {current}): ").strip()
     if new_val:
         try:
