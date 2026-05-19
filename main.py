@@ -7,11 +7,11 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-import anthropic
 from dotenv import load_dotenv
 
 from fetcher import fetch_all, load_seen_ids, save_seen_ids
-from processor import estimate_cost, process_all
+from processor import estimate_cost, process_all, _get_model
+from provider import create_provider
 from renderer import render_daily
 from scraper import scrape_all
 from scraped_sources import SCRAPED_SOURCES
@@ -247,12 +247,14 @@ def main() -> None:
             list_sources()
         elif args.source_cmd == "add":
             load_dotenv()
-            api_key = os.getenv("ANTHROPIC_API_KEY")
+            ai_provider = os.getenv("AI_PROVIDER", "anthropic")
+            key_var = "GOOGLE_API_KEY" if ai_provider == "google" else "ANTHROPIC_API_KEY"
+            api_key = os.getenv(key_var)
             if not api_key:
-                print("ERRO: ANTHROPIC_API_KEY não definida. Execute 'aora config' primeiro.")
+                print(f"ERRO: {key_var} não definida. Execute 'aora config' primeiro.")
                 sys.exit(1)
-            client = anthropic.Anthropic(api_key=api_key)
-            add_source(args.url, client)
+            provider = create_provider(ai_provider, api_key)
+            add_source(args.url, provider)
         elif args.source_cmd == "remove":
             remove_source(args.name)
         sys.exit(0)
@@ -279,14 +281,18 @@ def main() -> None:
 
         sys.exit(0)
 
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    ai_provider = os.getenv("AI_PROVIDER", "anthropic")
+    key_var = "GOOGLE_API_KEY" if ai_provider == "google" else "ANTHROPIC_API_KEY"
+    api_key = os.getenv(key_var)
     if not api_key:
         print("Aora não configurado. Iniciando assistente...")
         run_setup()
         load_dotenv(override=True)
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        ai_provider = os.getenv("AI_PROVIDER", "anthropic")
+        key_var = "GOOGLE_API_KEY" if ai_provider == "google" else "ANTHROPIC_API_KEY"
+        api_key = os.getenv(key_var)
         if not api_key:
-            print("ERRO: Configuração cancelada ou ANTHROPIC_API_KEY não definida.")
+            print(f"ERRO: Configuração cancelada ou {key_var} não definida.")
             sys.exit(1)
 
     output_dir = Path(os.getenv("OUTPUT_DIR", "./output"))
@@ -307,7 +313,7 @@ def main() -> None:
     print("  █▀█ █▀█ █▀█ █▀█  :: Hoje: " + today.isoformat())
     print(f"  █▀█ █▄█ █▀▄ █▀█  :: AI Clipping v{VERSION}")
     print("="*50)
-    print(f"Janela: {lookback_hours}h | Max por fonte: {max_items}")
+    print(f"Provider: {ai_provider} | Janela: {lookback_hours}h | Max por fonte: {max_items}")
     print(f"Saída: {output_path}")
     print()
 
@@ -347,9 +353,10 @@ def main() -> None:
         return
 
     # 3. Process new items with LLM
-    client = anthropic.Anthropic(api_key=api_key)
-    print("Processando com Claude Haiku...")
-    enriched, total_input, total_output, total_cache, is_async = process_all(new_items, client)
+    provider = create_provider(ai_provider, api_key)
+    model = _get_model(provider)
+    print(f"Processando com {model} ({ai_provider})...")
+    enriched, total_input, total_output, total_cache, is_async = process_all(new_items, provider)
     print()
 
     # 4. Merge with previous items and render full day
@@ -364,7 +371,7 @@ def main() -> None:
     log_errors(error_sources)
 
     # 6. Summary
-    cost = estimate_cost(total_input, total_output, total_cache, is_async)
+    cost = estimate_cost(total_input, total_output, total_cache, is_async, ai_provider, model)
     print()
     print("=" * 50)
     print(f"✓ {len(enriched)} novos | {len(all_today)} total no dia")

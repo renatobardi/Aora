@@ -11,6 +11,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from provider import BaseProvider
 from sources import CATEGORY_ORDER, CATEGORY_LABELS
 
 _ROOT = Path(__file__).parent
@@ -190,8 +191,8 @@ def _validate_config(source_type: str, config: dict) -> list[str]:
     return sorted(required - config.keys())
 
 
-def add_source(url: str, client) -> None:
-    model = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+def add_source(url: str, provider: BaseProvider) -> None:
+    from processor import _get_model  # noqa: PLC0415
 
     url = _normalize_url(url)
     print(f"\nAnalisando {url} ...")
@@ -210,15 +211,15 @@ def add_source(url: str, client) -> None:
 
     user_message = "\n".join(user_parts)
 
-    print("Consultando Claude para sugerir configuração...")
-    response = client.messages.create(
-        model=model,
-        max_tokens=1024,
+    print("Consultando IA para sugerir configuração...")
+    result = provider.generate(
+        model=_get_model(provider),
         system=_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
+        user=user_message,
+        max_tokens=1024,
     )
 
-    raw = response.content[0].text.strip()
+    raw = result.text.strip()
 
     # Strip markdown code fences if present
     if raw.startswith("```"):
