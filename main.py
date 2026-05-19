@@ -4,8 +4,13 @@ import argparse
 import json
 import os
 import sys
+import warnings
 from datetime import date, datetime, timezone
 from pathlib import Path
+
+# Suppress noisy third-party warnings caused by running on Python 3.9 (EOL).
+warnings.filterwarnings("ignore", message=r".*urllib3 v2 only supports OpenSSL.*")
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"google\.(auth|oauth2)")
 
 from dotenv import load_dotenv
 
