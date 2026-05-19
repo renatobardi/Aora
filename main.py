@@ -201,7 +201,7 @@ def main() -> None:
         help="lista todas as fontes configuradas",
         description=(
             "Lista todas as fontes RSS e web scraping configuradas,\n"
-            "agrupadas por categoria e ordenadas por CATEGORY_ORDER."
+            "agrupadas por categoria e ordenadas por prioridade editorial."
         ),
         formatter_class=_HelpFmt,
     )
