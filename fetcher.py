@@ -8,7 +8,7 @@ import feedparser
 import httpx
 import trafilatura
 
-from progress_utils import make_progress
+from progress_utils import make_progress, ok_line, warn_line
 
 
 def load_seen_ids(path: str) -> set[str]:
@@ -115,9 +115,9 @@ def fetch_all(
             items, error = fetch_feed(source, updated_ids, lookback_hours, max_items)
             if error:
                 error_sources.append(source["name"])
-                progress.console.print(f"  [WARN] {source['name']}: {error}")
+                progress.console.print(warn_line(source["name"], error))
             else:
-                progress.console.print(f"  [OK]   {source['name']}: {len(items)} novo(s)")
+                progress.console.print(ok_line(source["name"], len(items)))
             for item in items:
                 updated_ids.add(item["id"])
             all_items.extend(items)

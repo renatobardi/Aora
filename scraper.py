@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from html_scraper import scrape_html
 from playwright_scraper import scrape_playwright
-from progress_utils import make_progress
+from progress_utils import make_progress, ok_line, warn_line
 from sitemap_scraper import scrape_sitemap
 
 
@@ -31,9 +31,9 @@ def scrape_all(
 
             if error:
                 error_sources.append(source["name"])
-                progress.console.print(f"  [WARN] {source['name']}: {error}")
+                progress.console.print(warn_line(source["name"], error))
             else:
-                progress.console.print(f"  [OK]   {source['name']}: {len(items)} novo(s)")
+                progress.console.print(ok_line(source["name"], len(items)))
 
             for item in items:
                 updated_ids.add(item["id"])

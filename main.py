@@ -19,7 +19,7 @@ from sources import SOURCES
 from config_wizard import run_setup
 from version import VERSION
 from wiki_manager import run_ingest, run_lint, run_query
-from source_manager import list_sources, add_source, remove_source
+from source_manager import list_sources, add_source, remove_source, crosscheck_sources, update_source_health, show_health
 
 SEEN_IDS_PATH = "seen_ids.json"
 ERRORS_LOG_PATH = "feed_errors.log"
@@ -63,7 +63,7 @@ variáveis de ambiente:
   MAX_ITEMS_PER_SOURCE    cap por fonte   (padrão: 5, máx: 99)
 
 fontes configuradas em sources.json (RSS) e scraped_sources.json (web)
-use 'aora source list' para listar, 'aora source add <url>' para adicionar"""
+comandos de fonte: list · add <url> · remove <nome> · health · crosscheck"""
 
 _ENV_SOURCE_ADD = """\
 variáveis relevantes:
@@ -242,6 +242,28 @@ def main() -> None:
     )
     source_remove_parser.add_argument("name", help="nome da fonte a remover (exato ou parcial para sugestões)")
 
+    source_sub.add_parser(
+        "health",
+        help="relatório de saúde das fontes (estagnadas, suspeitas, ativas)",
+        description=(
+            "Lê source_health.json (atualizado automaticamente a cada run) e exibe\n"
+            "um relatório colorido: fontes estagnadas (>30 dias), suspeitas (7-30 dias)\n"
+            "e ativas (<7 dias). Execute 'aora all' primeiro para popular os dados."
+        ),
+        formatter_class=_HelpFmt,
+    )
+
+    source_sub.add_parser(
+        "crosscheck",
+        help="audita cobertura RSS ↔ web em todas as fontes e propõe adições",
+        description=(
+            "Para cada fonte que só tem RSS, verifica se existe scraping viável.\n"
+            "Para cada fonte que só tem web scraping, verifica se existe RSS.\n"
+            "Exibe um relatório consolidado e aplica as sugestões de uma vez."
+        ),
+        formatter_class=_HelpFmt,
+    )
+
     args = parser.parse_args()
     
     # Compatibilidade com o formato antigo que não usava subparser
@@ -270,6 +292,18 @@ def main() -> None:
             add_source(args.url, provider)
         elif args.source_cmd == "remove":
             remove_source(args.name)
+        elif args.source_cmd == "health":
+            show_health()
+        elif args.source_cmd == "crosscheck":
+            load_dotenv()
+            ai_provider = os.getenv("AI_PROVIDER", "anthropic")
+            key_var = "GOOGLE_API_KEY" if ai_provider == "google" else "ANTHROPIC_API_KEY"
+            api_key = os.getenv(key_var)
+            if not api_key:
+                print(f"ERRO: {key_var} não definida. Execute 'aora config' primeiro.")
+                sys.exit(1)
+            provider = create_provider(ai_provider, api_key)
+            crosscheck_sources(provider)
         sys.exit(0)
 
     if args.command == "config":
@@ -355,6 +389,11 @@ def main() -> None:
 
     new_items = rss_items + scraped_items
     error_sources = rss_errors + scraped_errors
+
+    # Silently update source health (no output)
+    checked = (SOURCES if args.command in ["all", "rss"] else []) + \
+              (list(SCRAPED_SOURCES) if args.command in ["all", "web"] else [])
+    update_source_health(checked, new_items, set(error_sources))
 
     if not new_items:
         print("Nenhum item novo. Encerrando.")

@@ -5,11 +5,13 @@ import os
 import re
 import time
 
+from json_repair import repair_json
+
 from provider import BaseProvider
 
-from progress_utils import make_progress, make_spinner
+from progress_utils import console, make_progress, make_spinner
 
-MAX_TOKENS = 300
+MAX_TOKENS = 512
 
 VALID_TAGS = {
     "foundation-model", "inference", "open-source", "agent", "rag",
@@ -51,10 +53,18 @@ def get_model(provider: BaseProvider) -> str:
 
 
 def _parse_json_response(text: str) -> dict:
-    text = text.strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    return json.loads(text)
+    raw = text.strip()
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError:
+        result = json.loads(repair_json(raw))
+    if isinstance(result, list):
+        result = result[0] if result else {}
+    if not isinstance(result, dict):
+        raise ValueError(f"resposta não é um objeto JSON. Recebido: {raw[:120]!r}")
+    return result
 
 
 def _fallback(item: dict) -> dict:
@@ -135,7 +145,7 @@ def process_item_sync(item: dict, provider: BaseProvider) -> dict:
         }
 
     except Exception as exc:
-        print(f"  [LLM ERROR] {item['source_name']} — {item['title'][:60]}: {exc}")
+        console.print(f"  [LLM ERROR] {item['source_name']} — {item['title'][:60]}: {exc}")
         return _fallback(item)
 
 
@@ -144,7 +154,7 @@ def process_all_async(
 ) -> tuple[list[dict], int, int, int]:
     """Anthropic Batch API — 50% discount. Only available when provider.supports_batch."""
     if not provider.supports_batch:
-        print("  [AVISO] Batch API não disponível para este provider. Usando modo síncrono.")
+        console.print("  [AVISO] Batch API não disponível para este provider. Usando modo síncrono.")
         return process_all_sync(items, provider)
 
     if not items:
@@ -215,10 +225,10 @@ def process_all_async(
                     "tokens_cache_read": 0,
                 })
             except Exception as exc:
-                print(f"  [LLM ERROR] {item['source_name']} — Erro no parsing: {exc}")
+                console.print(f"  [LLM ERROR] {item['source_name']} — Erro no parsing: {exc}")
                 enriched.append(_fallback(item))
         else:
-            print(f"  [LLM ERROR] {item['source_name']} — Falha na API: {getattr(res, 'result', 'Desconhecido')}")
+            console.print(f"  [LLM ERROR] {item['source_name']} — Falha na API: {getattr(res, 'result', 'Desconhecido')}")
             enriched.append(_fallback(item))
 
     return enriched, total_input, total_output, total_cache
