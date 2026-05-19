@@ -5,9 +5,7 @@ import json
 import re
 import shutil
 import tempfile
-from io import StringIO
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -296,6 +294,175 @@ class TestAddSourceEdgeCases:
     def test_system_prompt_has_all_methods(self):
         for method in ("rss", "sitemap", "html", "playwright"):
             assert method in sm._SYSTEM_PROMPT
+
+    def test_probe_failure_prints_warning(self, tmp_jsons, capsys):
+        client = _make_client({"type": "rss", "config": {"name": "X", "feed_url": "https://x.com/f", "category": "media"}})
+        with (
+            patch("httpx.get", side_effect=Exception("timeout")),
+            patch("httpx.head", side_effect=Exception("timeout")),
+            patch("builtins.input", return_value="N"),
+        ):
+            sm.add_source("https://example.com", client)
+        out = capsys.readouterr().out
+        assert "Aviso" in out
+
+    def test_url_without_scheme_is_normalized(self, tmp_jsons):
+        client = _make_client({"type": "rss", "config": {"name": "X", "feed_url": "https://x.com/f", "category": "media"}})
+        called_urls = []
+        original_probe = sm._probe_url
+
+        def capturing_probe(url):
+            called_urls.append(url)
+            return _probe_side_effect()
+
+        with (
+            patch.object(sm, "_probe_url", side_effect=capturing_probe),
+            patch("builtins.input", return_value="N"),
+        ):
+            sm.add_source("example.com", client)
+        assert called_urls[0].startswith("https://")
+
+    def test_duplicate_rss_source_rejected(self, tmp_jsons):
+        tmp_src, _ = tmp_jsons
+        original = json.loads(tmp_src.read_text())
+        existing = original[0]
+        config = {"name": existing["name"], "feed_url": existing["feed_url"], "category": existing["category"]}
+        client = _make_client({"type": "rss", "config": config})
+        with (
+            patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
+            patch("builtins.input", return_value="s"),
+        ):
+            sm.add_source("https://example.com", client)
+        assert json.loads(tmp_src.read_text()) == original
+
+    def test_duplicate_web_source_rejected(self, tmp_jsons):
+        _, tmp_scr = tmp_jsons
+        original = json.loads(tmp_scr.read_text())
+        existing = original[0]
+        config = {k: v for k, v in existing.items()}
+        client = _make_client({"type": "web", "config": config})
+        with (
+            patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
+            patch("builtins.input", return_value="s"),
+        ):
+            sm.add_source("https://example.com", client)
+        assert json.loads(tmp_scr.read_text()) == original
+
+    def test_incomplete_rss_config_exits(self, tmp_jsons):
+        client = _make_client({"type": "rss", "config": {"name": "X"}})
+        with (
+            patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
+            pytest.raises(SystemExit),
+        ):
+            sm.add_source("https://example.com", client)
+
+    def test_incomplete_web_config_exits(self, tmp_jsons):
+        client = _make_client({"type": "web", "config": {"name": "X", "method": "sitemap"}})
+        with (
+            patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
+            pytest.raises(SystemExit),
+        ):
+            sm.add_source("https://example.com", client)
+
+    def test_unknown_method_exits(self, tmp_jsons):
+        client = _make_client({"type": "web", "config": {"name": "X", "method": "unknown"}})
+        with (
+            patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
+            pytest.raises(SystemExit),
+        ):
+            sm.add_source("https://example.com", client)
+
+
+# ── _normalize_url ────────────────────────────────────────────────────────────
+
+class TestNormalizeUrl:
+    def test_adds_https_when_no_scheme(self):
+        assert sm._normalize_url("example.com") == "https://example.com"
+
+    def test_preserves_https(self):
+        assert sm._normalize_url("https://example.com") == "https://example.com"
+
+    def test_preserves_http(self):
+        assert sm._normalize_url("http://example.com") == "http://example.com"
+
+    def test_does_not_double_scheme(self):
+        result = sm._normalize_url("https://example.com")
+        assert result.count("https://") == 1
+
+
+# ── _validate_config ──────────────────────────────────────────────────────────
+
+class TestValidateConfig:
+    def test_valid_rss(self):
+        config = {"name": "X", "feed_url": "https://x.com/f", "category": "media"}
+        assert sm._validate_config("rss", config) == []
+
+    def test_rss_missing_feed_url(self):
+        missing = sm._validate_config("rss", {"name": "X", "category": "media"})
+        assert "feed_url" in missing
+
+    def test_valid_sitemap(self):
+        config = {"name": "X", "category": "media", "method": "sitemap",
+                  "sitemap_url": "https://x.com/s.xml", "url_pattern": "x\\.com/blog/"}
+        assert sm._validate_config("web", config) == []
+
+    def test_sitemap_missing_url_pattern(self):
+        config = {"name": "X", "category": "media", "method": "sitemap", "sitemap_url": "https://x.com/s.xml"}
+        missing = sm._validate_config("web", config)
+        assert "url_pattern" in missing
+
+    def test_valid_html(self):
+        config = {"name": "X", "category": "media", "method": "html",
+                  "listing_url": "https://x.com/blog", "link_pattern": "x\\.com/blog/", "base_url": "https://x.com"}
+        assert sm._validate_config("web", config) == []
+
+    def test_html_missing_base_url(self):
+        config = {"name": "X", "category": "media", "method": "html",
+                  "listing_url": "https://x.com/blog", "link_pattern": "x\\.com/blog/"}
+        missing = sm._validate_config("web", config)
+        assert "base_url" in missing
+
+    def test_valid_playwright(self):
+        config = {"name": "X", "category": "media", "method": "playwright",
+                  "listing_url": "https://x.com/blog", "link_pattern": "x\\.com/blog/"}
+        assert sm._validate_config("web", config) == []
+
+    def test_unknown_method_returns_error(self):
+        config = {"name": "X", "category": "media", "method": "unknown"}
+        result = sm._validate_config("web", config)
+        assert len(result) == 1
+        assert "unknown" in result[0]
+
+    @pytest.mark.parametrize("method,required_fields", [
+        ("sitemap",    ["sitemap_url", "url_pattern"]),
+        ("html",       ["listing_url", "link_pattern", "base_url"]),
+        ("playwright", ["listing_url", "link_pattern"]),
+    ])
+    def test_all_required_fields_detected(self, method, required_fields):
+        config = {"name": "X", "category": "media", "method": method}
+        missing = sm._validate_config("web", config)
+        for field in required_fields:
+            assert field in missing
+
+
+# ── _load error handling ──────────────────────────────────────────────────────
+
+class TestLoadErrorHandling:
+    def test_missing_file_exits(self, tmp_path):
+        with pytest.raises(SystemExit):
+            sm._load(tmp_path / "nonexistent.json")
+
+    def test_corrupted_json_exits(self, tmp_path):
+        bad = tmp_path / "bad.json"
+        bad.write_text("{ this is not valid json }")
+        with pytest.raises(SystemExit):
+            sm._load(bad)
+
+    def test_valid_file_returns_data(self, tmp_path):
+        f = tmp_path / "ok.json"
+        f.write_text('[{"name": "X"}]')
+        result = sm._load(f)
+        assert result == [{"name": "X"}]
 
 
 # ── remove_source: exact matches ──────────────────────────────────────────────

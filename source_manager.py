@@ -17,9 +17,23 @@ _ROOT = Path(__file__).parent
 _SOURCES_PATH = _ROOT / "sources.json"
 _SCRAPED_PATH = _ROOT / "scraped_sources.json"
 
+_REQUIRED_FIELDS: dict[str, set[str]] = {
+    "rss":        {"name", "feed_url", "category"},
+    "sitemap":    {"name", "category", "sitemap_url", "url_pattern"},
+    "html":       {"name", "category", "listing_url", "link_pattern", "base_url"},
+    "playwright": {"name", "category", "listing_url", "link_pattern"},
+}
+
 
 def _load(path: Path) -> list[dict]:
-    return json.loads(path.read_text())
+    try:
+        return json.loads(path.read_text())
+    except FileNotFoundError:
+        print(f"ERRO: arquivo de fontes não encontrado: {path}")
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"ERRO: {path.name} está corrompido: {e}")
+        sys.exit(1)
 
 
 def _save(path: Path, data: list[dict]) -> None:
@@ -111,6 +125,13 @@ ou
 {"type": "web", "config": {"name": "...", "category": "...", "method": "...", ...}}"""
 
 
+def _normalize_url(url: str) -> str:
+    """Ensure URL has a scheme; default to https if missing."""
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    return url
+
+
 def _probe_url(url: str) -> dict:
     """Fetch the URL and look for RSS feeds and sitemap hints."""
     result = {"html": "", "rss_links": [], "has_sitemap": False, "robots_sitemaps": []}
@@ -132,7 +153,7 @@ def _probe_url(url: str) -> dict:
                     if full not in result["rss_links"]:
                         result["rss_links"].append(full)
     except Exception:
-        pass
+        print("Aviso: não foi possível acessar a URL — sugestão de Claude pode ser imprecisa.")
 
     # Try sitemap.xml
     base = urlparse(url)
@@ -157,9 +178,22 @@ def _probe_url(url: str) -> dict:
     return result
 
 
+def _validate_config(source_type: str, config: dict) -> list[str]:
+    """Return list of missing required field names for the given type/method."""
+    if source_type == "rss":
+        required = _REQUIRED_FIELDS["rss"]
+    else:
+        method = config.get("method", "")
+        required = _REQUIRED_FIELDS.get(method, set())
+        if not required:
+            return [f"method inválido ou ausente: '{method}'"]
+    return sorted(required - config.keys())
+
+
 def add_source(url: str, client) -> None:
     model = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 
+    url = _normalize_url(url)
     print(f"\nAnalisando {url} ...")
     probe = _probe_url(url)
 
@@ -205,6 +239,13 @@ def add_source(url: str, client) -> None:
         print(f"ERRO: tipo de fonte inválido '{source_type}'")
         sys.exit(1)
 
+    missing = _validate_config(source_type, config)
+    if missing:
+        print(f"ERRO: config sugerido por Claude está incompleto. Campos faltando: {', '.join(missing)}")
+        print("Sugestão recebida:")
+        print(json.dumps(suggestion, ensure_ascii=False, indent=2))
+        sys.exit(1)
+
     print("\nSugestão de Claude:")
     print(json.dumps(suggestion, ensure_ascii=False, indent=2))
 
@@ -216,14 +257,22 @@ def add_source(url: str, client) -> None:
 
     if source_type == "rss":
         sources = _load(_SOURCES_PATH)
+        existing_names = {s["name"].lower() for s in sources}
+        if config["name"].lower() in existing_names:
+            print(f"ERRO: fonte '{config['name']}' já existe em sources.json.")
+            return
         sources.append(config)
         _save(_SOURCES_PATH, sources)
-        print(f"\nFonte '{config.get('name')}' adicionada a sources.json.")
+        print(f"\nFonte '{config['name']}' adicionada a sources.json.")
     else:
         sources = _load(_SCRAPED_PATH)
+        existing_names = {s["name"].lower() for s in sources}
+        if config["name"].lower() in existing_names:
+            print(f"ERRO: fonte '{config['name']}' já existe em scraped_sources.json.")
+            return
         sources.append(config)
         _save(_SCRAPED_PATH, sources)
-        print(f"\nFonte '{config.get('name')}' adicionada a scraped_sources.json.")
+        print(f"\nFonte '{config['name']}' adicionada a scraped_sources.json.")
 
 
 # ── REMOVE ────────────────────────────────────────────────────────────────────

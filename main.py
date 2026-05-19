@@ -217,13 +217,13 @@ def main() -> None:
         args.command = "all"
 
     if args.command == "source":
-        load_dotenv()
         if not hasattr(args, "source_cmd") or args.source_cmd is None:
             source_parser.print_help()
             sys.exit(0)
         if args.source_cmd == "list":
             list_sources()
         elif args.source_cmd == "add":
+            load_dotenv()
             api_key = os.getenv("ANTHROPIC_API_KEY")
             if not api_key:
                 print("ERRO: ANTHROPIC_API_KEY não definida. Execute 'aora config' primeiro.")
