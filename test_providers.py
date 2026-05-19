@@ -286,6 +286,7 @@ class TestCreateProvider:
         out = capsys.readouterr().out
         assert "google-genai" in out
         assert "pip install" in out
+        assert "Execute:" in out
 
 
 # ── get_model ─────────────────────────────────────────────────────────────────

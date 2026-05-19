@@ -7,9 +7,9 @@ import os
 import subprocess
 import sys
 
-import pytest
-
 _PROJECT = os.path.dirname(os.path.abspath(__file__))
+# sys.executable ensures the subprocess uses the same Python (and installed packages)
+# as the test runner — correct in both system installs and virtualenvs.
 _PYTHON = sys.executable
 
 
@@ -29,26 +29,26 @@ def _run(*args, env_extra=None):
 class TestHelpText:
     """_ENV_ALL and _ENV_SOURCE_ADD must document both providers' API keys."""
 
+    @classmethod
+    def setup_class(cls):
+        cls._main_help = _run("-h")
+        cls._source_add_help = _run("source", "add", "-h")
+
     def test_main_help_shows_ai_provider(self):
-        result = _run("-h")
-        assert "AI_PROVIDER" in result.stdout
+        assert "AI_PROVIDER" in self._main_help.stdout
 
     def test_main_help_shows_anthropic_api_key(self):
-        result = _run("-h")
-        assert "ANTHROPIC_API_KEY" in result.stdout
+        assert "ANTHROPIC_API_KEY" in self._main_help.stdout
 
     def test_main_help_shows_google_api_key(self):
-        result = _run("-h")
-        assert "GOOGLE_API_KEY" in result.stdout
+        assert "GOOGLE_API_KEY" in self._main_help.stdout
 
     def test_source_add_help_shows_ai_provider(self):
-        result = _run("source", "add", "-h")
-        assert "AI_PROVIDER" in result.stdout
+        assert "AI_PROVIDER" in self._source_add_help.stdout
 
     def test_source_add_help_shows_both_api_keys(self):
-        result = _run("source", "add", "-h")
-        assert "ANTHROPIC_API_KEY" in result.stdout
-        assert "GOOGLE_API_KEY" in result.stdout
+        assert "ANTHROPIC_API_KEY" in self._source_add_help.stdout
+        assert "GOOGLE_API_KEY" in self._source_add_help.stdout
 
 
 # ── source add key selection ───────────────────────────────────────────────────
