@@ -5,9 +5,8 @@ import os
 import re
 import time
 
-import anthropic
+from provider import BaseProvider
 
-MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 MAX_TOKENS = 300
 
 VALID_TAGS = {
@@ -24,6 +23,29 @@ Seja denso e técnico, no estilo Karpathy: foque em implicações reais, não em
 Tags válidas: foundation-model, inference, open-source, agent, rag, fine-tuning, infra, \
 dados, segurança, robotica, multimodal, pesquisa, produto, hardware, regulacao, open-weight\
 """
+
+# Preços por 1M tokens (input, output) — valores oficiais maio/2026
+_ANTHROPIC_PRICING: dict[str, tuple[float, float]] = {
+    "claude-haiku-4-5-20251001": (1.00, 5.00),
+    "claude-3-5-haiku-latest":   (1.00, 5.00),
+    "claude-3-7-sonnet-latest":  (3.00, 15.00),
+    "claude-sonnet-4-6":         (3.00, 15.00),
+    "claude-opus-4-7":           (5.00, 25.00),
+}
+
+_GOOGLE_PRICING: dict[str, tuple[float, float]] = {
+    "gemini-2.5-flash-lite": (0.10,  0.40),
+    "gemini-2.5-flash":      (0.30,  2.50),
+    "gemini-2.5-pro":        (1.25, 10.00),
+    "gemini-3.1-flash-lite": (0.25,  1.50),
+    "gemini-3-flash-preview":(0.50,  3.00),
+}
+
+
+def get_model(provider: BaseProvider) -> str:
+    if provider.name == "google":
+        return os.getenv("GOOGLE_MODEL", "gemini-2.5-flash-lite")
+    return os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 
 
 def _parse_json_response(text: str) -> dict:
@@ -45,36 +67,8 @@ def _fallback(item: dict) -> dict:
     }
 
 
-def estimate_cost(input_tokens: int, output_tokens: int, cache_read_tokens: int, is_async: bool = False) -> float:
-    # Definindo preços base (USD por 1M tokens) dependendo do modelo selecionado
-    if "sonnet" in MODEL:
-        # Claude 3.7 Sonnet pricing
-        price_input = 3.00
-        price_output = 15.00
-        price_cache_read = 0.30
-    elif "haiku-latest" in MODEL or "haiku-3-5" in MODEL:
-        # Claude 3.5 Haiku pricing
-        price_input = 0.80
-        price_output = 4.00
-        price_cache_read = 0.08
-    else:
-        # Fallback (geralmente Haiku 4.5 ou similar)
-        price_input = 0.80
-        price_output = 4.00
-        price_cache_read = 0.08
-
-    # Se for assíncrono (Batch API), tem 50% de desconto
-    discount = 0.5 if is_async else 1.0
-
-    cost = (
-        (input_tokens / 1_000_000) * (price_input * discount)
-        + (output_tokens / 1_000_000) * (price_output * discount)
-        + (cache_read_tokens / 1_000_000) * price_cache_read
-    )
-    return cost
-
-def process_item_sync(item: dict, client: anthropic.Anthropic) -> dict:
-    user_message = (
+def _build_user_message(item: dict) -> str:
+    return (
         f"Empresa: {item['source_name']}\n"
         f"Título: {item['title']}\n"
         f"Conteúdo: {item['content']}\n\n"
@@ -86,84 +80,96 @@ def process_item_sync(item: dict, client: anthropic.Anthropic) -> dict:
         '}'
     )
 
-    try:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
-            system=[
-                {
-                    "type": "text",
-                    "text": SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": user_message}],
-        )
-        parsed = _parse_json_response(response.content[0].text)
 
-        # sanitize tags to only valid ones
+def estimate_cost(
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int,
+    is_async: bool = False,
+    provider_name: str = "anthropic",
+    model: str = "",
+) -> float:
+    if provider_name == "google":
+        price_input, price_output = _GOOGLE_PRICING.get(model, (0.30, 2.50))
+        return (
+            (input_tokens / 1_000_000) * price_input
+            + (output_tokens / 1_000_000) * price_output
+        )
+
+    price_input, price_output = _ANTHROPIC_PRICING.get(model, (1.00, 5.00))
+    # cache reads custo = 10% do input
+    price_cache_read = price_input * 0.10
+    discount = 0.5 if is_async else 1.0
+
+    return (
+        (input_tokens / 1_000_000) * (price_input * discount)
+        + (output_tokens / 1_000_000) * (price_output * discount)
+        + (cache_read_tokens / 1_000_000) * price_cache_read
+    )
+
+
+def process_item_sync(item: dict, provider: BaseProvider) -> dict:
+    user_message = _build_user_message(item)
+    model = get_model(provider)
+
+    try:
+        result = provider.generate(
+            model=model,
+            system=SYSTEM_PROMPT,
+            user=user_message,
+            max_tokens=MAX_TOKENS,
+        )
+        parsed = _parse_json_response(result.text)
         tags = [t for t in parsed.get("tags", []) if t in VALID_TAGS]
 
-        usage = response.usage
         return {
             **item,
             "tldr": parsed.get("tldr", ""),
             "por_que_importa": parsed.get("por_que_importa", ""),
             "tags": tags,
-            "tokens_input": usage.input_tokens,
-            "tokens_output": usage.output_tokens,
-            "tokens_cache_read": getattr(usage, "cache_read_input_tokens", 0),
+            "tokens_input": result.input_tokens,
+            "tokens_output": result.output_tokens,
+            "tokens_cache_read": result.cached_tokens,
         }
 
     except Exception as exc:
         print(f"  [LLM ERROR] {item['source_name']} — {item['title'][:60]}: {exc}")
         return _fallback(item)
 
+
 def process_all_async(
-    items: list[dict], client: anthropic.Anthropic
+    items: list[dict], provider: BaseProvider
 ) -> tuple[list[dict], int, int, int]:
+    """Anthropic Batch API — 50% discount. Only available when provider.supports_batch."""
+    if not provider.supports_batch:
+        print("  [AVISO] Batch API não disponível para este provider. Usando modo síncrono.")
+        return process_all_sync(items, provider)
+
     if not items:
         return [], 0, 0, 0
 
+    client = provider.client
+    model = get_model(provider)
+
     print("  Preparando Batch API para 50% de desconto...")
     requests = []
-    
-    # Criar as requisições em lote
+
     for i, item in enumerate(items):
-        user_message = (
-            f"Empresa: {item['source_name']}\n"
-            f"Título: {item['title']}\n"
-            f"Conteúdo: {item['content']}\n\n"
-            'Responda APENAS com um JSON:\n'
-            '{\n'
-            '  "tldr": "Uma frase: o que foi publicado/anunciado.",\n'
-            '  "por_que_importa": "1-2 frases: implicação técnica ou estratégica real.",\n'
-            '  "tags": ["tag1", "tag2", "tag3"]\n'
-            '}'
-        )
-        
         requests.append({
             "custom_id": str(i),
             "params": {
-                "model": MODEL,
+                "model": model,
                 "max_tokens": MAX_TOKENS,
-                "system": [
-                    {
-                        "type": "text",
-                        "text": SYSTEM_PROMPT,
-                    }
-                ],
-                "messages": [{"role": "user", "content": user_message}],
+                "system": [{"type": "text", "text": SYSTEM_PROMPT}],
+                "messages": [{"role": "user", "content": _build_user_message(item)}],
             }
         })
 
-    # Enviar Batch
     print(f"  Enviando batch com {len(requests)} itens para a Anthropic...")
     batch = client.messages.batches.create(requests=requests)
-    
+
     print(f"  Lote criado (ID: {batch.id}). Aguardando processamento...")
-    
-    # Polling - esperar terminar com backoff
+
     wait_time = 10
     max_wait_time = 60
 
@@ -174,38 +180,34 @@ def process_all_async(
         elif status.processing_status in ["canceled", "canceling", "expired"]:
             print(f"  [ERRO] Batch cancelado ou expirado. Status: {status.processing_status}")
             return [_fallback(item) for item in items], 0, 0, 0
-        
+
         print(f"  Processando... (aguardando {wait_time}s)")
         time.sleep(wait_time)
-        
+
         if wait_time < max_wait_time:
             wait_time += 10
 
-    # Processar resultados
     print("  Batch concluído! Baixando resultados... [◈]")
     results = list(client.messages.batches.results(batch.id))
-    
+
     enriched: list[dict] = []
     total_input = total_output = total_cache = 0
 
-    # Organizar resultados na mesma ordem dos items
-    # (A API de batch não garante a ordem dos resultados, por isso mapeamos pelo custom_id)
     results_map = {res.custom_id: res for res in results}
-    
+
     for i, item in enumerate(items):
         res = results_map.get(str(i))
-        
+
         if res and res.result.type == "succeeded":
             msg = res.result.message
             try:
                 parsed = _parse_json_response(msg.content[0].text)
                 tags = [t for t in parsed.get("tags", []) if t in VALID_TAGS]
-                
+
                 usage = msg.usage
                 total_input += usage.input_tokens
                 total_output += usage.output_tokens
-                # API de Batch não usa cache_read_tokens, pois o desconto de batch é fixo.
-                
+
                 enriched.append({
                     **item,
                     "tldr": parsed.get("tldr", ""),
@@ -226,7 +228,7 @@ def process_all_async(
 
 
 def process_all_sync(
-    items: list[dict], client: anthropic.Anthropic
+    items: list[dict], provider: BaseProvider
 ) -> tuple[list[dict], int, int, int]:
     enriched: list[dict] = []
     total_input = total_output = total_cache = 0
@@ -234,7 +236,7 @@ def process_all_sync(
     print("  Usando modo Síncrono (Rápido) [◈]")
     for i, item in enumerate(items, 1):
         print(f"  [{i}/{len(items)}] {item['source_name']}: {item['title'][:60]}")
-        result = process_item_sync(item, client)
+        result = process_item_sync(item, provider)
         enriched.append(result)
         total_input += result["tokens_input"]
         total_output += result["tokens_output"]
@@ -244,13 +246,13 @@ def process_all_sync(
 
 
 def process_all(
-    items: list[dict], client: anthropic.Anthropic
+    items: list[dict], provider: BaseProvider
 ) -> tuple[list[dict], int, int, int, bool]:
     mode = os.getenv("PROCESS_MODE", "sync")
-    
+
     if mode == "async":
-        enriched, inp, out, cache = process_all_async(items, client)
-        return enriched, inp, out, cache, True
+        enriched, inp, out, cache = process_all_async(items, provider)
+        return enriched, inp, out, cache, provider.supports_batch
     else:
-        enriched, inp, out, cache = process_all_sync(items, client)
+        enriched, inp, out, cache = process_all_sync(items, provider)
         return enriched, inp, out, cache, False

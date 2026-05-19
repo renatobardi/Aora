@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import source_manager as sm
+from provider import GenerateResult
 from sources import CATEGORY_ORDER, SOURCES
 from scraped_sources import SCRAPED_SOURCES
 
@@ -32,13 +33,13 @@ def tmp_jsons(tmp_path):
         yield tmp_src, tmp_scr
 
 
-def _make_client(response_json: dict) -> MagicMock:
-    """Build a fake Anthropic client that returns a fixed JSON string."""
-    client = MagicMock()
-    content = MagicMock()
-    content.text = json.dumps(response_json)
-    client.messages.create.return_value = MagicMock(content=[content])
-    return client
+def _make_provider(response_json: dict) -> MagicMock:
+    """Build a fake BaseProvider that returns a fixed JSON string."""
+    provider = MagicMock()
+    provider.generate.return_value = GenerateResult(
+        text=json.dumps(response_json), input_tokens=0, output_tokens=0
+    )
+    return provider
 
 
 def _probe_side_effect(rss_links=None, has_sitemap=True, robots_sitemaps=None):
@@ -113,24 +114,24 @@ class TestAddSourceRSS:
 
     def test_proposes_rss_type(self, tmp_jsons, name, feed_url, category):
         suggestion = {"type": "rss", "config": {"name": name, "feed_url": feed_url, "category": category}}
-        client = _make_client(suggestion)
+        provider = _make_provider(suggestion)
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect(rss_links=[feed_url])),
             patch("builtins.input", return_value="N"),
         ):
-            sm.add_source("https://example.com", client)
-        client.messages.create.assert_called_once()
+            sm.add_source("https://example.com", provider)
+        provider.generate.assert_called_once()
 
     def test_cancelled_does_not_write(self, tmp_jsons, name, feed_url, category):
         tmp_src, _ = tmp_jsons
         original = json.loads(tmp_src.read_text())
         suggestion = {"type": "rss", "config": {"name": name, "feed_url": feed_url, "category": category}}
-        client = _make_client(suggestion)
+        provider = _make_provider(suggestion)
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect(rss_links=[feed_url])),
             patch("builtins.input", return_value="N"),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
         assert json.loads(tmp_src.read_text()) == original
 
     def test_confirmed_appends_to_sources_json(self, tmp_jsons, name, feed_url, category):
@@ -142,12 +143,12 @@ class TestAddSourceRSS:
 
         config = {"name": name + "_test", "feed_url": feed_url, "category": category}
         suggestion = {"type": "rss", "config": config}
-        client = _make_client(suggestion)
+        provider = _make_provider(suggestion)
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect(rss_links=[feed_url])),
             patch("builtins.input", return_value="s"),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
 
         after = json.loads(tmp_src.read_text())
         names = [s["name"] for s in after]
@@ -160,12 +161,12 @@ class TestAddSourceRSS:
         original_web = json.loads(tmp_scr.read_text())
         config = {"name": name + "_rss_test", "feed_url": feed_url, "category": category}
         suggestion = {"type": "rss", "config": config}
-        client = _make_client(suggestion)
+        provider = _make_provider(suggestion)
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect(rss_links=[feed_url])),
             patch("builtins.input", return_value="s"),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
         assert json.loads(tmp_scr.read_text()) == original_web
 
 
@@ -195,25 +196,25 @@ class TestAddSourceWeb:
     def test_proposes_web_type(self, tmp_jsons, name, method, category):
         config = self._make_config(name, method, category)
         suggestion = {"type": "web", "config": config}
-        client = _make_client(suggestion)
+        provider = _make_provider(suggestion)
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
             patch("builtins.input", return_value="N"),
         ):
-            sm.add_source("https://example.com", client)
-        client.messages.create.assert_called_once()
+            sm.add_source("https://example.com", provider)
+        provider.generate.assert_called_once()
 
     def test_cancelled_does_not_write(self, tmp_jsons, name, method, category):
         _, tmp_scr = tmp_jsons
         original = json.loads(tmp_scr.read_text())
         config = self._make_config(name, method, category)
         suggestion = {"type": "web", "config": config}
-        client = _make_client(suggestion)
+        provider = _make_provider(suggestion)
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
             patch("builtins.input", return_value="N"),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
         assert json.loads(tmp_scr.read_text()) == original
 
     def test_confirmed_appends_to_scraped_json(self, tmp_jsons, name, method, category):
@@ -224,12 +225,12 @@ class TestAddSourceWeb:
 
         config = self._make_config(name + "_test", method, category)
         suggestion = {"type": "web", "config": config}
-        client = _make_client(suggestion)
+        provider = _make_provider(suggestion)
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
             patch("builtins.input", return_value="s"),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
 
         after = json.loads(tmp_scr.read_text())
         names = [s["name"] for s in after]
@@ -241,12 +242,12 @@ class TestAddSourceWeb:
         original_rss = json.loads(tmp_src.read_text())
         config = self._make_config(name + "_web_test", method, category)
         suggestion = {"type": "web", "config": config}
-        client = _make_client(suggestion)
+        provider = _make_provider(suggestion)
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
             patch("builtins.input", return_value="s"),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
         assert json.loads(tmp_src.read_text()) == original_rss
 
 
@@ -254,38 +255,38 @@ class TestAddSourceWeb:
 
 class TestAddSourceEdgeCases:
     def test_invalid_json_from_claude_exits(self, tmp_jsons, capsys):
-        client = MagicMock()
-        content = MagicMock()
-        content.text = "não é JSON válido"
-        client.messages.create.return_value = MagicMock(content=[content])
+        provider = MagicMock()
+        provider.generate.return_value = GenerateResult(
+            text="não é JSON válido", input_tokens=0, output_tokens=0
+        )
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
             pytest.raises(SystemExit),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
 
     def test_invalid_type_exits(self, tmp_jsons):
         suggestion = {"type": "unknown", "config": {"name": "X"}}
-        client = _make_client(suggestion)
+        provider = _make_provider(suggestion)
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
             pytest.raises(SystemExit),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
 
     def test_markdown_fences_stripped(self, tmp_jsons):
         suggestion = {"type": "rss", "config": {"name": "X", "feed_url": "https://x.com/feed", "category": "media"}}
-        client = MagicMock()
-        content = MagicMock()
-        content.text = "```json\n" + json.dumps(suggestion) + "\n```"
-        client.messages.create.return_value = MagicMock(content=[content])
+        provider = MagicMock()
+        provider.generate.return_value = GenerateResult(
+            text="```json\n" + json.dumps(suggestion) + "\n```", input_tokens=0, output_tokens=0
+        )
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
             patch("builtins.input", return_value="N"),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
         # Reaching here means JSON was parsed successfully
-        client.messages.create.assert_called_once()
+        provider.generate.assert_called_once()
 
     def test_system_prompt_has_all_categories(self):
         for cat in CATEGORY_ORDER:
@@ -296,18 +297,18 @@ class TestAddSourceEdgeCases:
             assert method in sm._SYSTEM_PROMPT
 
     def test_probe_failure_prints_warning(self, tmp_jsons, capsys):
-        client = _make_client({"type": "rss", "config": {"name": "X", "feed_url": "https://x.com/f", "category": "media"}})
+        provider = _make_provider({"type": "rss", "config": {"name": "X", "feed_url": "https://x.com/f", "category": "media"}})
         with (
             patch("httpx.get", side_effect=Exception("timeout")),
             patch("httpx.head", side_effect=Exception("timeout")),
             patch("builtins.input", return_value="N"),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
         out = capsys.readouterr().out
         assert "Aviso" in out
 
     def test_url_without_scheme_is_normalized(self, tmp_jsons):
-        client = _make_client({"type": "rss", "config": {"name": "X", "feed_url": "https://x.com/f", "category": "media"}})
+        provider = _make_provider({"type": "rss", "config": {"name": "X", "feed_url": "https://x.com/f", "category": "media"}})
         called_urls = []
         original_probe = sm._probe_url
 
@@ -319,7 +320,7 @@ class TestAddSourceEdgeCases:
             patch.object(sm, "_probe_url", side_effect=capturing_probe),
             patch("builtins.input", return_value="N"),
         ):
-            sm.add_source("example.com", client)
+            sm.add_source("example.com", provider)
         assert called_urls[0].startswith("https://")
 
     def test_duplicate_rss_source_rejected(self, tmp_jsons):
@@ -327,12 +328,12 @@ class TestAddSourceEdgeCases:
         original = json.loads(tmp_src.read_text())
         existing = original[0]
         config = {"name": existing["name"], "feed_url": existing["feed_url"], "category": existing["category"]}
-        client = _make_client({"type": "rss", "config": config})
+        provider = _make_provider({"type": "rss", "config": config})
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
             patch("builtins.input", return_value="s"),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
         assert json.loads(tmp_src.read_text()) == original
 
     def test_duplicate_web_source_rejected(self, tmp_jsons):
@@ -340,37 +341,37 @@ class TestAddSourceEdgeCases:
         original = json.loads(tmp_scr.read_text())
         existing = original[0]
         config = {k: v for k, v in existing.items()}
-        client = _make_client({"type": "web", "config": config})
+        provider = _make_provider({"type": "web", "config": config})
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
             patch("builtins.input", return_value="s"),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
         assert json.loads(tmp_scr.read_text()) == original
 
     def test_incomplete_rss_config_exits(self, tmp_jsons):
-        client = _make_client({"type": "rss", "config": {"name": "X"}})
+        provider = _make_provider({"type": "rss", "config": {"name": "X"}})
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
             pytest.raises(SystemExit),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
 
     def test_incomplete_web_config_exits(self, tmp_jsons):
-        client = _make_client({"type": "web", "config": {"name": "X", "method": "sitemap"}})
+        provider = _make_provider({"type": "web", "config": {"name": "X", "method": "sitemap"}})
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
             pytest.raises(SystemExit),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
 
     def test_unknown_method_exits(self, tmp_jsons):
-        client = _make_client({"type": "web", "config": {"name": "X", "method": "unknown"}})
+        provider = _make_provider({"type": "web", "config": {"name": "X", "method": "unknown"}})
         with (
             patch.object(sm, "_probe_url", return_value=_probe_side_effect()),
             pytest.raises(SystemExit),
         ):
-            sm.add_source("https://example.com", client)
+            sm.add_source("https://example.com", provider)
 
 
 # ── _normalize_url ────────────────────────────────────────────────────────────
