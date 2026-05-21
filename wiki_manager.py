@@ -102,8 +102,22 @@ def split_digest_by_category(path: Path) -> list[tuple[str, str]]:
 
 # --- Resume state (per-chunk progress for unattended re-runs) ---
 
+def _vault_file(vault_path: Path, *parts: str) -> Path:
+    """Resolve a path inside the vault, rejecting anything that escapes it.
+
+    OUTPUT_DIR is operator config, but guarding the canonical path against a
+    misconfigured/traversing value keeps the Python-side writes (state, log
+    marker) constrained to the vault (path-injection / S2083).
+    """
+    base = vault_path.resolve()
+    target = base.joinpath(*parts).resolve()
+    if target != base and base not in target.parents:
+        raise ValueError(f"caminho fora do vault: {target}")
+    return target
+
+
 def _ingest_state_path(vault_path: Path) -> Path:
-    return vault_path / "wiki" / ".ingest_state.json"
+    return _vault_file(vault_path, "wiki", ".ingest_state.json")
 
 
 def _load_ingest_state(vault_path: Path) -> dict:
@@ -130,7 +144,7 @@ def _prepend_ingest_marker(
     entry with the `Source:` marker that get_unprocessed_raw_files looks for.
     The vault log is newest-first, so we prepend.
     """
-    log_file = vault_path / "wiki" / "log.md"
+    log_file = _vault_file(vault_path, "wiki", "log.md")
     existing = log_file.read_text() if log_file.exists() else ""
     cats = ", ".join(c for c in categories if c)
     entry = (
@@ -144,6 +158,40 @@ def _prepend_ingest_marker(
 
 
 # --- claude -p streaming runner ---
+
+def _shorten_target(target: str, vault_path: Path) -> str:
+    vp = str(vault_path)
+    if target.startswith(vp):
+        target = target[len(vp):].lstrip("/")
+    return target if len(target) <= 70 else target[:67] + "..."
+
+
+def _format_block(block: dict, vault_path: Path) -> str | None:
+    """One assistant content block → a progress line (or None to skip)."""
+    bt = block.get("type")
+    if bt == "tool_use":
+        name = str(block.get("name", "?"))
+        inp = block.get("input", {}) or {}
+        target = str(
+            inp.get("file_path") or inp.get("path")
+            or inp.get("pattern") or inp.get("command") or ""
+        )
+        return f"    [dim]→ {escape(name)}[/dim] {escape(_shorten_target(target, vault_path))}"
+    if bt == "text":
+        txt = (block.get("text") or "").strip()
+        if txt:
+            return f"    [dim]· {escape(txt.replace(chr(10), ' ')[:90])}[/dim]"
+    return None
+
+
+def _format_result(ev: dict) -> str | None:
+    if ev.get("is_error"):
+        return "    [red]claude retornou erro neste passo.[/red]"
+    dur, turns = ev.get("duration_ms"), ev.get("num_turns")
+    if dur is not None and turns is not None:
+        return f"    [dim]✓ {turns} turnos, {dur // 1000}s[/dim]"
+    return None
+
 
 def _print_stream_event(line: str, vault_path: Path) -> None:
     """Render one stream-json line as a short progress line."""
@@ -161,35 +209,13 @@ def _print_stream_event(line: str, vault_path: Path) -> None:
     etype = ev.get("type")
     if etype == "assistant":
         for block in ev.get("message", {}).get("content") or []:
-            bt = block.get("type")
-            if bt == "tool_use":
-                name = str(block.get("name", "?"))
-                inp = block.get("input", {}) or {}
-                target = str(
-                    inp.get("file_path")
-                    or inp.get("path")
-                    or inp.get("pattern")
-                    or inp.get("command")
-                    or ""
-                )
-                vp = str(vault_path)
-                if target.startswith(vp):
-                    target = target[len(vp):].lstrip("/")
-                if len(target) > 70:
-                    target = target[:67] + "..."
-                console.print(f"    [dim]→ {escape(name)}[/dim] {escape(target)}")
-            elif bt == "text":
-                txt = (block.get("text") or "").strip()
-                if txt:
-                    snippet = txt.replace("\n", " ")[:90]
-                    console.print(f"    [dim]· {escape(snippet)}[/dim]")
+            msg = _format_block(block, vault_path)
+            if msg:
+                console.print(msg)
     elif etype == "result":
-        if ev.get("is_error"):
-            console.print("    [red]claude retornou erro neste passo.[/red]")
-        else:
-            dur, turns = ev.get("duration_ms"), ev.get("num_turns")
-            if dur is not None and turns is not None:
-                console.print(f"    [dim]✓ {turns} turnos, {dur // 1000}s[/dim]")
+        msg = _format_result(ev)
+        if msg:
+            console.print(msg)
 
 
 def _run_claude(
@@ -322,25 +348,91 @@ Ao terminar, exiba um resumo compacto: páginas criadas, páginas atualizadas, e
 
 # --- Workflows ---
 
+def _resolve_ingest_targets(vault_path: Path, file_path: str | None) -> list[Path]:
+    if file_path:
+        target = Path(file_path)
+        if not target.is_absolute():
+            # basename strips any traversal — raw files live directly in raw/
+            target = vault_path / "raw" / os.path.basename(file_path)
+        if not target.exists():
+            console.print(f"  [red]ERRO: Arquivo não encontrado: {file_path}[/red]")
+            sys.exit(1)
+        return [target]
+
+    console.print("  [WIKI] Buscando arquivos raw não processados...")
+    files = get_unprocessed_raw_files(vault_path)
+    if not files:
+        console.print("  [WIKI] Nenhum arquivo novo. A Wiki está atualizada!")
+    return files
+
+
+def _ingest_single(vault_path: Path, raw_file: Path, today: str) -> bool:
+    """Original one-shot agentic flow for an individual article."""
+    try:
+        rel_path: Path | str = raw_file.relative_to(vault_path)
+    except ValueError:
+        rel_path = raw_file
+    console.print(f"  Ingerindo: {raw_file.name}")
+    rc = _run_claude(
+        _build_single_prompt(vault_path, rel_path, today),
+        vault_path, timeout=INGEST_TIMEOUT, label=raw_file.name,
+    )
+    console.print()
+    if rc != 0:
+        console.print(f"  [red]ERRO: ingest falhou para {raw_file.name} (rc={rc}).[/red]")
+        return False
+    return True
+
+
+def _ingest_chunks(
+    vault_path: Path, raw_file: Path, chunks: list[tuple[str, str]], state: dict, today: str
+) -> bool:
+    """Per-category chunked ingest with resume + single final log marker."""
+    source_slug = f"{raw_file.stem}-clipping"
+    done_idx = state.get(raw_file.name, -1)
+    console.print(f"  Ingerindo: {raw_file.name} ({len(chunks)} chunks por categoria)")
+    if done_idx >= 0:
+        console.print(f"    [yellow]retomando: chunks 1..{done_idx + 1} já processados[/yellow]")
+
+    for idx, (category, chunk_text) in enumerate(chunks):
+        if idx <= done_idx:
+            continue
+        console.print(f"\n  ── chunk {idx + 1}/{len(chunks)}: {category or 'documento'} ──")
+        rc = _run_claude(
+            _build_chunk_prompt(
+                vault_path, raw_file.name, category, chunk_text,
+                idx, len(chunks), today, source_slug,
+            ),
+            vault_path, timeout=INGEST_TIMEOUT,
+            label=f"{raw_file.name} [{idx + 1}/{len(chunks)}]",
+        )
+        if rc != 0:
+            console.print(
+                f"  [red]ERRO: chunk {idx + 1} falhou (rc={rc}). "
+                f"Re-execute para retomar daqui.[/red]"
+            )
+            return False
+        state[raw_file.name] = idx
+        _save_ingest_state(vault_path, state)
+
+    # All chunks done: write the canonical marker and clear resume state.
+    _prepend_ingest_marker(vault_path, raw_file.name, [c for c, _ in chunks], today)
+    state.pop(raw_file.name, None)
+    _save_ingest_state(vault_path, state)
+    console.print(
+        f"\n  [green][OK] {raw_file.name} ingerido completamente ({len(chunks)} chunks).[/green]"
+    )
+    return True
+
+
 def run_ingest(file_path: str | None = None) -> None:
     vault_path = get_vault_path()
     today = date.today().isoformat()
     console.print(f"  [WIKI] Vault: {vault_path}")
 
-    if file_path:
-        target = Path(file_path)
-        if not target.is_absolute():
-            target = vault_path / "raw" / file_path
-        if not target.exists():
-            console.print(f"  [red]ERRO: Arquivo não encontrado: {file_path}[/red]")
-            sys.exit(1)
-        files_to_process = [target]
-    else:
-        console.print("  [WIKI] Buscando arquivos raw não processados...")
-        files_to_process = get_unprocessed_raw_files(vault_path)
-        if not files_to_process:
-            console.print("  [WIKI] Nenhum arquivo novo. A Wiki está atualizada!")
-            return
+    files_to_process = _resolve_ingest_targets(vault_path, file_path)
+    if not files_to_process:
+        return
 
     console.print(f"  [WIKI] {len(files_to_process)} arquivo(s) na fila:")
     for f in files_to_process:
@@ -348,73 +440,17 @@ def run_ingest(file_path: str | None = None) -> None:
     console.print()
 
     state = _load_ingest_state(vault_path)
-    failed = False
-
     for raw_file in files_to_process:
-        try:
-            rel_path: Path | str = raw_file.relative_to(vault_path)
-        except ValueError:
-            rel_path = raw_file
-
         chunks = split_digest_by_category(raw_file)
-
-        # Single chunk (individual article): original one-shot agentic flow.
         if len(chunks) == 1:
-            console.print(f"  Ingerindo: {raw_file.name}")
-            rc = _run_claude(
-                _build_single_prompt(vault_path, rel_path, today),
-                vault_path, timeout=INGEST_TIMEOUT, label=raw_file.name,
-            )
-            console.print()
-            if rc != 0:
-                console.print(f"  [red]ERRO: ingest falhou para {raw_file.name} (rc={rc}).[/red]")
-                failed = True
-                break
-            continue
-
-        # Multi-chunk digest: per-category with resume + single final log marker.
-        source_slug = f"{raw_file.stem}-clipping"
-        done_idx = state.get(raw_file.name, -1)
-        console.print(f"  Ingerindo: {raw_file.name} ({len(chunks)} chunks por categoria)")
-        if done_idx >= 0:
-            console.print(f"    [yellow]retomando: chunks 1..{done_idx + 1} já processados[/yellow]")
-
-        for idx, (category, chunk_text) in enumerate(chunks):
-            if idx <= done_idx:
-                continue
-            console.print(f"\n  ── chunk {idx + 1}/{len(chunks)}: {category or 'documento'} ──")
-            rc = _run_claude(
-                _build_chunk_prompt(
-                    vault_path, raw_file.name, category, chunk_text,
-                    idx, len(chunks), today, source_slug,
-                ),
-                vault_path, timeout=INGEST_TIMEOUT,
-                label=f"{raw_file.name} [{idx + 1}/{len(chunks)}]",
-            )
-            if rc != 0:
-                console.print(
-                    f"  [red]ERRO: chunk {idx + 1} falhou (rc={rc}). "
-                    f"Estado salvo — re-execute para retomar daqui.[/red]"
-                )
-                failed = True
-                break
-            state[raw_file.name] = idx
-            _save_ingest_state(vault_path, state)
+            ok = _ingest_single(vault_path, raw_file, today)
         else:
-            # All chunks done: write the canonical marker and clear resume state.
-            _prepend_ingest_marker(vault_path, raw_file.name, [c for c, _ in chunks], today)
-            state.pop(raw_file.name, None)
-            _save_ingest_state(vault_path, state)
-            console.print(
-                f"\n  [green][OK] {raw_file.name} ingerido completamente "
-                f"({len(chunks)} chunks).[/green]"
-            )
-            continue
-        break  # a chunk failed — stop before later files
+            ok = _ingest_chunks(vault_path, raw_file, chunks, state, today)
+        if not ok:
+            console.print()
+            sys.exit(1)  # fail-fast; re-run resumes from saved state
 
     console.print()
-    if failed:
-        sys.exit(1)
 
 
 def run_lint() -> None:
