@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
+import sys
+import threading
 from datetime import date
 from pathlib import Path
 
-from progress_utils import console, make_progress, make_spinner
+from rich.markup import escape
+
+from progress_utils import console
+
+# Per-call timeouts (seconds). Chunks are small, so 900s is generous.
+INGEST_TIMEOUT = 900
+LINT_TIMEOUT = 1800
+QUERY_TIMEOUT = 600
 
 
 def get_vault_path() -> Path:
@@ -44,62 +54,193 @@ def get_unprocessed_raw_files(vault_path: Path) -> list[Path]:
     return sorted(unprocessed)
 
 
-def _run_claude(prompt: str, vault_path: Path, timeout: int = 600) -> int:
-    # Remove API keys from the subprocess env so claude -p uses the Pro
+def split_digest_by_category(path: Path) -> list[tuple[str, str]]:
+    """Split an Aora daily digest into (category, chunk_text) pairs.
+
+    A digest is detected by `type: ai-clipping` in its frontmatter. Only then is
+    it split, by level-1 (`# `) headers that contain at least one `## ` item; the
+    frontmatter/title/intro (no items) becomes a preamble prepended to every chunk
+    so each claude -p call keeps the digest's date/context. Any other file (an
+    individual article) returns a single ("", full_text) chunk — the original flow.
+    """
+    text = path.read_text()
+
+    # Only Aora digests get chunked. Articles always stay whole.
+    if not re.search(r"^type:\s*ai-clipping\s*$", text[:600], re.MULTILINE):
+        return [("", text)]
+
+    lines = text.splitlines(keepends=True)
+    h1 = [i for i, ln in enumerate(lines) if ln.startswith("# ")]
+    if not h1:
+        return [("", text)]
+
+    bounds = h1 + [len(lines)]
+    preamble_parts: list[str] = []
+    pre = "".join(lines[: h1[0]])
+    if pre.strip():
+        preamble_parts.append(pre)
+
+    chunks: list[tuple[str, str]] = []
+    for a, b in zip(bounds, bounds[1:]):
+        seg = "".join(lines[a:b])
+        seg_lines = seg.splitlines()
+        title = seg_lines[0].lstrip("#").strip() if seg_lines else ""
+        has_items = any(ln.startswith("## ") for ln in seg_lines)
+        if has_items:
+            chunks.append((title, seg))
+        else:
+            preamble_parts.append(seg)
+
+    if not chunks:
+        return [("", text)]
+
+    preamble = "".join(preamble_parts).strip()
+    if preamble:
+        return [(title, f"{preamble}\n\n{seg}") for title, seg in chunks]
+    return chunks
+
+
+# --- Resume state (per-chunk progress for unattended re-runs) ---
+
+def _ingest_state_path(vault_path: Path) -> Path:
+    return vault_path / "wiki" / ".ingest_state.json"
+
+
+def _load_ingest_state(vault_path: Path) -> dict:
+    try:
+        return json.loads(_ingest_state_path(vault_path).read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_ingest_state(vault_path: Path, state: dict) -> None:
+    path = _ingest_state_path(vault_path)
+    if state:
+        path.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+    elif path.exists():
+        path.unlink()
+
+
+def _prepend_ingest_marker(
+    vault_path: Path, filename: str, categories: list[str], today: str
+) -> None:
+    """Write the single canonical log entry for a fully-ingested digest.
+
+    Per-chunk claude calls are told NOT to touch the log; this guarantees one
+    entry with the `Source:` marker that get_unprocessed_raw_files looks for.
+    The vault log is newest-first, so we prepend.
+    """
+    log_file = vault_path / "wiki" / "log.md"
+    existing = log_file.read_text() if log_file.exists() else ""
+    cats = ", ".join(c for c in categories if c)
+    entry = (
+        f"## [{today}] ingest | {filename}\n"
+        f"- Source: `raw/{filename}`\n"
+        f"- Chunks processados: {len(categories)}"
+        + (f" ({cats})" if cats else "")
+        + "\n\n"
+    )
+    log_file.write_text(entry + existing)
+
+
+# --- claude -p streaming runner ---
+
+def _print_stream_event(line: str, vault_path: Path) -> None:
+    """Render one stream-json line as a short progress line."""
+    line = line.strip()
+    if not line:
+        return
+    try:
+        ev = json.loads(line)
+    except json.JSONDecodeError:
+        return
+
+    etype = ev.get("type")
+    if etype == "assistant":
+        for block in ev.get("message", {}).get("content", []):
+            bt = block.get("type")
+            if bt == "tool_use":
+                name = str(block.get("name", "?"))
+                inp = block.get("input", {}) or {}
+                target = str(
+                    inp.get("file_path")
+                    or inp.get("path")
+                    or inp.get("pattern")
+                    or inp.get("command")
+                    or ""
+                )
+                vp = str(vault_path)
+                if target.startswith(vp):
+                    target = target[len(vp):].lstrip("/")
+                if len(target) > 70:
+                    target = target[:67] + "..."
+                console.print(f"    [dim]→ {escape(name)}[/dim] {escape(target)}")
+            elif bt == "text":
+                txt = (block.get("text") or "").strip()
+                if txt:
+                    snippet = txt.replace("\n", " ")[:90]
+                    console.print(f"    [dim]· {escape(snippet)}[/dim]")
+    elif etype == "result" and ev.get("is_error"):
+        console.print("    [red]claude retornou erro neste passo.[/red]")
+
+
+def _run_claude(
+    prompt: str, vault_path: Path, timeout: int = INGEST_TIMEOUT, label: str = ""
+) -> int:
+    # Remove API keys from the subprocess env so claude -p uses the Pro/Max
     # subscription instead of billing against the Anthropic API credits.
     env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY")}
+    cmd = [
+        "claude", "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--allowedTools", "Read,Write,Edit,Bash,Glob,Grep",
+    ]
     try:
-        result = subprocess.run(
-            [
-                "claude", "-p", prompt,
-                "--allowedTools", "Read,Write,Edit,Bash,Glob,Grep",
-            ],
+        proc = subprocess.Popen(
+            cmd,
             cwd=str(vault_path),
-            check=False,
-            timeout=timeout,
             env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
         )
-        return result.returncode
-    except subprocess.TimeoutExpired:
-        console.print(f"  [ERRO] Timeout: claude não respondeu em {timeout // 60} minutos.")
+    except FileNotFoundError:
+        console.print("  [red]ERRO: CLI 'claude' não encontrado no PATH.[/red]")
         return 1
 
+    timed_out = False
 
-def run_ingest(file_path: str | None = None) -> None:
-    vault_path = get_vault_path()
-    today = date.today().isoformat()
-    console.print(f"  [WIKI] Vault: {vault_path}")
+    def _kill() -> None:
+        nonlocal timed_out
+        timed_out = True
+        proc.kill()
 
-    if file_path:
-        target = Path(file_path)
-        if not target.is_absolute():
-            target = vault_path / "raw" / file_path
-        if not target.exists():
-            console.print(f"  [ERRO] Arquivo não encontrado: {file_path}")
-            return
-        files_to_process = [target]
-    else:
-        console.print("  [WIKI] Buscando arquivos raw não processados...")
-        files_to_process = get_unprocessed_raw_files(vault_path)
-        if not files_to_process:
-            console.print("  [WIKI] Nenhum arquivo novo. A Wiki está atualizada!")
-            return
+    timer = threading.Timer(timeout, _kill)
+    timer.start()
+    try:
+        if proc.stdout is not None:
+            for line in proc.stdout:
+                _print_stream_event(line, vault_path)
+        proc.wait()
+    except KeyboardInterrupt:
+        proc.kill()
+        raise
+    finally:
+        timer.cancel()
 
-    console.print(f"  [WIKI] {len(files_to_process)} arquivo(s) na fila:")
-    for f in files_to_process:
-        console.print(f"    - {f.name}")
-    console.print()
+    if timed_out:
+        suffix = f" — {label}" if label else ""
+        console.print(f"  [red]ERRO: Timeout ({timeout // 60}min){suffix}.[/red]")
+        return 1
+    return proc.returncode
 
-    with make_progress() as progress:
-        task = progress.add_task("Ingerindo arquivos", total=len(files_to_process))
-        for raw_file in files_to_process:
-            try:
-                rel_path = raw_file.relative_to(vault_path)
-            except ValueError:
-                rel_path = raw_file
-            progress.console.print(f"  Ingerindo: {raw_file.name}")
 
-            prompt = f"""\
+# --- Prompt builders ---
+
+def _build_single_prompt(vault_path: Path, rel_path: Path | str, today: str) -> str:
+    return f"""\
 Você está operando no vault de Obsidian em {vault_path}.
 
 Siga EXATAMENTE as instruções do CLAUDE.md deste vault para realizar o workflow INGEST do arquivo `{rel_path}`.
@@ -120,17 +261,159 @@ IMPORTANTE: Processo automatizado. NÃO pause para fazer perguntas. Execute o wo
 Ao terminar, exiba um resumo compacto: páginas criadas, páginas atualizadas, e os 2-3 achados mais importantes.
 """
 
-            returncode = _run_claude(prompt, vault_path)
-            if returncode != 0:
-                progress.console.print(f"  [ERRO] claude saiu com código {returncode} para {raw_file.name}")
-            progress.advance(task)
-            progress.console.print()
+
+def _build_chunk_prompt(
+    vault_path: Path,
+    filename: str,
+    category: str,
+    chunk_text: str,
+    idx: int,
+    total: int,
+    today: str,
+    source_slug: str,
+) -> str:
+    if idx == 0:
+        source_instr = (
+            f"Crie a source page wiki/sources/{source_slug}.md com frontmatter "
+            f"(title, category: sources, created: {today}, updated: {today}) e uma seção "
+            f"de destaques desta categoria."
+        )
+    else:
+        source_instr = (
+            f"Acrescente os destaques desta categoria à source page já existente "
+            f"wiki/sources/{source_slug}.md (criada num chunk anterior). NÃO recrie o arquivo."
+        )
+
+    return f"""\
+Você está operando no vault de Obsidian em {vault_path}.
+
+Este é o CHUNK {idx + 1}/{total} (categoria "{category}") do digest diário `raw/{filename}` (data {today}).
+Siga EXATAMENTE as instruções do CLAUDE.md deste vault para o workflow INGEST, ingerindo APENAS os itens fornecidos abaixo.
+
+IMPORTANTE: Processo automatizado, sem supervisão. NÃO pause para perguntas. Execute autonomamente:
+
+1. Leia o CLAUDE.md para entender o schema e as regras (frontmatter, categorias, [[wikilinks]])
+2. Leia wiki/index.md para mapear as páginas que já existem
+3. Para cada item deste chunk:
+   - Atualize páginas de entidades/conceitos/modelos/labs existentes que o item afeta (incremente o contador `sources:`)
+   - Crie páginas novas para entidades/conceitos mencionados que ainda não têm página
+   - Sinalize contradições com claims existentes usando `> ⚠️ Contradiction:`
+4. {source_instr}
+5. Atualize wiki/index.md (adicione páginas novas, ajuste resumos/contadores)
+
+NÃO escreva em wiki/log.md — o registro consolidado do digest é adicionado automaticamente ao final de todos os chunks.
+
+ITENS DESTE CHUNK:
+----------------------------------------
+{chunk_text}
+----------------------------------------
+
+Ao terminar, exiba um resumo compacto: páginas criadas, páginas atualizadas, e 1-2 achados importantes deste chunk.
+"""
+
+
+# --- Workflows ---
+
+def run_ingest(file_path: str | None = None) -> None:
+    vault_path = get_vault_path()
+    today = date.today().isoformat()
+    console.print(f"  [WIKI] Vault: {vault_path}")
+
+    if file_path:
+        target = Path(file_path)
+        if not target.is_absolute():
+            target = vault_path / "raw" / file_path
+        if not target.exists():
+            console.print(f"  [red]ERRO: Arquivo não encontrado: {file_path}[/red]")
+            sys.exit(1)
+        files_to_process = [target]
+    else:
+        console.print("  [WIKI] Buscando arquivos raw não processados...")
+        files_to_process = get_unprocessed_raw_files(vault_path)
+        if not files_to_process:
+            console.print("  [WIKI] Nenhum arquivo novo. A Wiki está atualizada!")
+            return
+
+    console.print(f"  [WIKI] {len(files_to_process)} arquivo(s) na fila:")
+    for f in files_to_process:
+        console.print(f"    - {f.name}")
+    console.print()
+
+    state = _load_ingest_state(vault_path)
+    failed = False
+
+    for raw_file in files_to_process:
+        try:
+            rel_path: Path | str = raw_file.relative_to(vault_path)
+        except ValueError:
+            rel_path = raw_file
+
+        chunks = split_digest_by_category(raw_file)
+
+        # Single chunk (individual article): original one-shot agentic flow.
+        if len(chunks) == 1:
+            console.print(f"  Ingerindo: {raw_file.name}")
+            rc = _run_claude(
+                _build_single_prompt(vault_path, rel_path, today),
+                vault_path, timeout=INGEST_TIMEOUT, label=raw_file.name,
+            )
+            console.print()
+            if rc != 0:
+                console.print(f"  [red]ERRO: ingest falhou para {raw_file.name} (rc={rc}).[/red]")
+                failed = True
+                break
+            continue
+
+        # Multi-chunk digest: per-category with resume + single final log marker.
+        source_slug = f"{raw_file.stem}-clipping"
+        done_idx = state.get(raw_file.name, -1)
+        console.print(f"  Ingerindo: {raw_file.name} ({len(chunks)} chunks por categoria)")
+        if done_idx >= 0:
+            console.print(f"    [yellow]retomando: chunks 1..{done_idx + 1} já processados[/yellow]")
+
+        for idx, (category, chunk_text) in enumerate(chunks):
+            if idx <= done_idx:
+                continue
+            console.print(f"\n  ── chunk {idx + 1}/{len(chunks)}: {category or 'documento'} ──")
+            rc = _run_claude(
+                _build_chunk_prompt(
+                    vault_path, raw_file.name, category, chunk_text,
+                    idx, len(chunks), today, source_slug,
+                ),
+                vault_path, timeout=INGEST_TIMEOUT,
+                label=f"{raw_file.name} [{idx + 1}/{len(chunks)}]",
+            )
+            if rc != 0:
+                console.print(
+                    f"  [red]ERRO: chunk {idx + 1} falhou (rc={rc}). "
+                    f"Estado salvo — re-execute para retomar daqui.[/red]"
+                )
+                failed = True
+                break
+            state[raw_file.name] = idx
+            _save_ingest_state(vault_path, state)
+        else:
+            # All chunks done: write the canonical marker and clear resume state.
+            _prepend_ingest_marker(vault_path, raw_file.name, [c for c, _ in chunks], today)
+            state.pop(raw_file.name, None)
+            _save_ingest_state(vault_path, state)
+            console.print(
+                f"\n  [green][OK] {raw_file.name} ingerido completamente "
+                f"({len(chunks)} chunks).[/green]"
+            )
+            continue
+        break  # a chunk failed — stop before later files
+
+    console.print()
+    if failed:
+        sys.exit(1)
 
 
 def run_lint() -> None:
     vault_path = get_vault_path()
     today = date.today().isoformat()
     console.print(f"  [WIKI] Iniciando LINT no Vault: {vault_path}")
+    console.print()
 
     prompt = f"""\
 Você está operando no vault de Obsidian em {vault_path}.
@@ -155,12 +438,11 @@ IMPORTANTE: Processo automatizado. Execute o lint completo autonomamente:
 Exiba um resumo final: N issues encontrados (H high, M medium, L low), N corrigidos.
 """
 
-    with make_spinner() as progress:
-        progress.add_task("Auditando vault (lint)")
-        returncode = _run_claude(prompt, vault_path)
-
-    if returncode != 0:
-        console.print(f"  [ERRO] claude saiu com código {returncode}")
+    rc = _run_claude(prompt, vault_path, timeout=LINT_TIMEOUT, label="lint")
+    console.print()
+    if rc != 0:
+        console.print(f"  [red]ERRO: lint falhou (rc={rc}).[/red]")
+        sys.exit(1)
 
 
 def run_query(question: str) -> None:
@@ -188,6 +470,8 @@ Workflow:
 Exiba a resposta completa com citações.
 """
 
-    returncode = _run_claude(prompt, vault_path)
-    if returncode != 0:
-        console.print(f"  [ERRO] claude saiu com código {returncode}")
+    rc = _run_claude(prompt, vault_path, timeout=QUERY_TIMEOUT, label="query")
+    console.print()
+    if rc != 0:
+        console.print(f"  [red]ERRO: query falhou (rc={rc}).[/red]")
+        sys.exit(1)
