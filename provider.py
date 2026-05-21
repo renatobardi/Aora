@@ -79,6 +79,7 @@ class GoogleProvider(BaseProvider):
             config=types.GenerateContentConfig(
                 system_instruction=system,
                 max_output_tokens=max_tokens,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
         meta = response.usage_metadata
