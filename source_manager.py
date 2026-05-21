@@ -8,6 +8,8 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
+from json_repair import repair_json
+
 import httpx
 from bs4 import BeautifulSoup
 
@@ -295,6 +297,311 @@ def add_source(url: str, provider: BaseProvider) -> None:
         _save(_SOURCES_PATH, rss_list)
     if web_list is not None:
         _save(_SCRAPED_PATH, web_list)
+
+
+# ── CROSSCHECK ───────────────────────────────────────────────────────────────
+
+_CROSSCHECK_SYSTEM_PROMPT = _SYSTEM_PROMPT + """
+
+INSTRUÇÃO ESPECIAL PARA CRUZAMENTO:
+- Esta fonte JÁ tem uma configuração existente (descrita acima).
+- Sugira APENAS o tipo complementar que falta (RSS ou web).
+- Se não houver RSS disponível, retorne null.
+- Se não houver scraping viável, retorne null.
+- Não repita o tipo que já existe.
+- Seja conservador: só sugira se tiver alta confiança que funciona."""
+
+
+def _parse_suggestions(text: str) -> list[dict]:
+    raw = text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else ""
+    if raw.endswith("```"):
+        raw = raw.rsplit("```", 1)[0].rstrip()
+    raw = raw.strip()
+    if not raw or raw.lower() == "null":
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            parsed = json.loads(repair_json(raw))
+        except Exception:
+            return []
+    if parsed is None:
+        return []
+    return parsed if isinstance(parsed, list) else [parsed]
+
+
+def _derive_main_url(source: dict, source_type: str) -> str:
+    if source_type == "rss":
+        p = urlparse(source["feed_url"])
+        return f"{p.scheme}://{p.netloc}"
+    return source.get("listing_url") or source.get("sitemap_url", "")
+
+
+def crosscheck_sources(provider: BaseProvider) -> None:
+    """Audit all sources for RSS ↔ web scraping coverage, propose additions."""
+    from processor import get_model  # noqa: PLC0415
+    from progress_utils import console, make_progress, ok_line, warn_line  # noqa: PLC0415
+
+    rss = _load(_SOURCES_PATH)
+    web = _load(_SCRAPED_PATH)
+
+    rss_names_lower = {s["name"].lower() for s in rss}
+    web_names_lower = {s["name"].lower() for s in web}
+
+    rss_only = [s for s in rss if s["name"].lower() not in web_names_lower]
+    web_only = [s for s in web if s["name"].lower() not in rss_names_lower]
+
+    total = len(rss_only) + len(web_only)
+    console.print(f"  Só em RSS: {len(rss_only)}  |  Só em web: {len(web_only)}  |  Total a auditar: {total}\n")
+
+    model = get_model(provider)
+    proposals: list[dict] = []
+
+    def _probe_and_ask(source: dict, source_type: str, want_type: str) -> list[dict]:
+        main_url = _derive_main_url(source, source_type)
+        if not main_url:
+            return []
+        probe = _probe_url(main_url)
+
+        user_parts = [
+            f"URL: {main_url}",
+            f"Configuração {source_type.upper()} existente: {json.dumps(source, ensure_ascii=False)}",
+        ]
+        if probe["rss_links"]:
+            user_parts.append(f"Feeds RSS encontrados: {', '.join(probe['rss_links'])}")
+        if probe["has_sitemap"]:
+            pu = urlparse(main_url)
+            user_parts.append(f"Sitemap disponível em: {pu.scheme}://{pu.netloc}/sitemap.xml")
+        if probe["robots_sitemaps"]:
+            user_parts.append(f"Sitemaps via robots.txt: {', '.join(probe['robots_sitemaps'])}")
+        if probe["html"]:
+            user_parts.append(f"\nHTML da página (primeiros 8000 chars):\n{probe['html']}")
+
+        result = provider.generate(
+            model=model,
+            system=_CROSSCHECK_SYSTEM_PROMPT,
+            user="\n".join(user_parts),
+            max_tokens=1024,
+        )
+        suggestions = _parse_suggestions(result.text)
+        return [
+            s for s in suggestions
+            if s.get("type") == want_type
+            and s.get("config")
+            and not _validate_config(s["type"], s["config"])
+        ]
+
+    with make_progress() as progress:
+        task = progress.add_task("Auditando fontes", total=total)
+
+        for source in rss_only:
+            try:
+                found = _probe_and_ask(source, "rss", "web")
+                if found:
+                    for s in found:
+                        proposals.append({"name": source["name"], "existing_type": "rss", "suggestion": s})
+                    progress.console.print(ok_line(f"{source['name']} rss→web", len(found)))
+                else:
+                    progress.console.print(f"  [--]   {source['name']}: sem web disponível")
+            except Exception as exc:
+                progress.console.print(warn_line(source["name"], str(exc)[:80]))
+            progress.advance(task)
+
+        for source in web_only:
+            try:
+                found = _probe_and_ask(source, "web", "rss")
+                if found:
+                    for s in found:
+                        proposals.append({"name": source["name"], "existing_type": "web", "suggestion": s})
+                    progress.console.print(ok_line(f"{source['name']} web→rss", len(found)))
+                else:
+                    progress.console.print(f"  [--]   {source['name']}: sem RSS disponível")
+            except Exception as exc:
+                progress.console.print(warn_line(source["name"], str(exc)[:80]))
+            progress.advance(task)
+
+    if not proposals:
+        console.print("\n  Nenhuma sugestão nova encontrada.")
+        return
+
+    console.print(f"\n{'='*60}")
+    console.print(f"  CRUZAMENTO RSS ↔ WEB — {len(proposals)} sugestão(ões)")
+    console.print(f"{'='*60}\n")
+
+    for p in proposals:
+        arrow = "RSS→WEB" if p["existing_type"] == "rss" else "WEB→RSS"
+        console.print(f"  [{arrow}] {p['name']}")
+        console.print(json.dumps(p["suggestion"]["config"], ensure_ascii=False, indent=4))
+        console.print()
+
+    confirm = input(f"Aplicar todas as {len(proposals)} sugestão(ões)? [s/N] ").strip().lower()
+    if confirm not in ("s", "sim", "y", "yes"):
+        console.print("Cancelado.")
+        return
+
+    rss_list = _load(_SOURCES_PATH)
+    web_list = _load(_SCRAPED_PATH)
+    added_rss = added_web = 0
+
+    for p in proposals:
+        stype = p["suggestion"]["type"]
+        cfg = p["suggestion"]["config"]
+        if stype == "rss":
+            if cfg["name"].lower() not in {e["name"].lower() for e in rss_list}:
+                rss_list.append(cfg)
+                added_rss += 1
+                console.print(f"  [OK] '{cfg['name']}' → sources.json")
+            else:
+                console.print(f"  [SKIP] '{cfg['name']}' já existe.")
+        else:
+            if cfg["name"].lower() not in {e["name"].lower() for e in web_list}:
+                web_list.append(cfg)
+                added_web += 1
+                console.print(f"  [OK] '{cfg['name']}' → scraped_sources.json")
+            else:
+                console.print(f"  [SKIP] '{cfg['name']}' já existe.")
+
+    if added_rss > 0:
+        _save(_SOURCES_PATH, rss_list)
+    if added_web > 0:
+        _save(_SCRAPED_PATH, web_list)
+
+    console.print(f"\n  ✓ {added_rss} RSS + {added_web} web adicionados.")
+
+
+# ── HEALTH ───────────────────────────────────────────────────────────────────
+
+_HEALTH_PATH = _ROOT / "source_health.json"
+
+_STALE_DAYS   = 30  # RED: sem itens há mais de N dias
+_SUSPECT_DAYS = 7   # YELLOW: sem itens há mais de N dias
+
+
+def _load_health() -> dict:
+    try:
+        return json.loads(_HEALTH_PATH.read_text()) if _HEALTH_PATH.exists() else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_health(health: dict) -> None:
+    fd, tmp = tempfile.mkstemp(dir=_HEALTH_PATH.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(health, ensure_ascii=False, indent=2))
+        os.replace(tmp, _HEALTH_PATH)
+    except Exception:
+        os.unlink(tmp)
+        raise
+
+
+def update_source_health(
+    checked_sources: list[dict],
+    items: list[dict],
+    error_names: set[str],
+) -> None:
+    """Silently update source_health.json after a pipeline run."""
+    from datetime import date  # noqa: PLC0415
+
+    health = _load_health()
+    today = date.today().isoformat()
+
+    # Map source_name → date of most recent item seen
+    source_hit: set[str] = {item["source_name"] for item in items}
+
+    for source in checked_sources:
+        name = source["name"]
+        entry = health.get(name, {"last_item_date": None, "consecutive_zeros": 0})
+        entry["last_run"] = today
+
+        if name in error_names:
+            pass  # error already surfaced as WARN; don't penalize zeros
+        elif name in source_hit:
+            entry["last_item_date"] = today
+            entry["consecutive_zeros"] = 0
+        else:
+            entry["consecutive_zeros"] = entry.get("consecutive_zeros", 0) + 1
+
+        health[name] = entry
+
+    _save_health(health)
+
+
+def show_health() -> None:
+    """Print a color-coded health report from source_health.json."""
+    from datetime import date  # noqa: PLC0415
+    from progress_utils import console  # noqa: PLC0415
+
+    health = _load_health()
+    if not health:
+        console.print("  Nenhum dado de saúde encontrado. Execute 'aora all' primeiro.")
+        return
+
+    rss = _load(_SOURCES_PATH)
+    web = _load(_SCRAPED_PATH)
+    all_names = sorted({s["name"] for s in rss + web})
+    today = date.today()
+
+    stale: list[tuple]   = []
+    suspect: list[tuple] = []
+    healthy: list[str]   = []
+    unseen: list[str]    = []  # in config but never ran
+
+    for name in all_names:
+        entry = health.get(name)
+        if not entry:
+            unseen.append(name)
+            continue
+
+        last_str = entry.get("last_item_date")
+        zeros = entry.get("consecutive_zeros", 0)
+
+        if last_str is None:
+            stale.append((name, None, zeros))
+        else:
+            days = (today - date.fromisoformat(last_str)).days
+            if days > _STALE_DAYS:
+                stale.append((name, last_str, zeros))
+            elif days > _SUSPECT_DAYS:
+                suspect.append((name, last_str, days, zeros))
+            else:
+                healthy.append(name)
+
+    console.print(f"\n  Fontes monitoradas: {len(all_names)}  |  Hoje: {today}\n")
+
+    if stale:
+        console.print(f"[red bold]  ESTAGNADAS ({len(stale)}) — sem itens há >{_STALE_DAYS} dias ou nunca[/red bold]")
+        for name, last, zeros in stale:
+            if last is None:
+                detail = "nunca produziu itens"
+            else:
+                days = (today - date.fromisoformat(last)).days
+                detail = f"último item: {last} ({days}d atrás)"
+            console.print(f"[red]    {name:<32} {zeros:>3} zeros  |  {detail}[/red]")
+        console.print()
+
+    if suspect:
+        console.print(f"[yellow bold]  SUSPEITAS ({len(suspect)}) — sem itens há {_SUSPECT_DAYS}-{_STALE_DAYS} dias[/yellow bold]")
+        for name, last, days, zeros in suspect:
+            console.print(f"[yellow]    {name:<32} {zeros:>3} zeros  |  último item: {last} ({days}d atrás)[/yellow]")
+        console.print()
+
+    console.print(f"[green]  ATIVAS ({len(healthy)}) — produziram itens nos últimos {_SUSPECT_DAYS} dias[/green]")
+    for name in healthy:
+        entry = health[name]
+        console.print(f"[green]    {name:<32} último item: {entry['last_item_date']}[/green]")
+
+    if unseen:
+        console.print(f"\n  SEM DADOS ({len(unseen)}) — nunca rodaram (execute 'aora all' para popular)")
+        for name in unseen:
+            console.print(f"    {name}")
+
+    if stale or suspect:
+        console.print("\n  Dica: 'aora source crosscheck' verifica alternativas para as estagnadas.")
+    console.print()
 
 
 # ── REMOVE ────────────────────────────────────────────────────────────────────

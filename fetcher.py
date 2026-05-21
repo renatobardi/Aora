@@ -8,6 +8,8 @@ import feedparser
 import httpx
 import trafilatura
 
+from progress_utils import make_progress, ok_line, warn_line
+
 
 def load_seen_ids(path: str) -> set[str]:
     p = Path(path)
@@ -107,15 +109,18 @@ def fetch_all(
     error_sources: list[str] = []
     updated_ids = set(seen_ids)
 
-    for source in sources:
-        items, error = fetch_feed(source, updated_ids, lookback_hours, max_items)
-        if error:
-            error_sources.append(source["name"])
-            print(f"  [WARN] {source['name']}: {error}")
-        else:
-            print(f"  [OK]   {source['name']}: {len(items)} novo(s)")
-        for item in items:
-            updated_ids.add(item["id"])
-        all_items.extend(items)
+    with make_progress() as progress:
+        task = progress.add_task("Buscando feeds RSS", total=len(sources))
+        for source in sources:
+            items, error = fetch_feed(source, updated_ids, lookback_hours, max_items)
+            if error:
+                error_sources.append(source["name"])
+                progress.console.print(warn_line(source["name"], error))
+            else:
+                progress.console.print(ok_line(source["name"], len(items)))
+            for item in items:
+                updated_ids.add(item["id"])
+            all_items.extend(items)
+            progress.advance(task)
 
     return all_items, error_sources, updated_ids

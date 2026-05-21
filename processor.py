@@ -5,9 +5,13 @@ import os
 import re
 import time
 
+from json_repair import repair_json
+
 from provider import BaseProvider
 
-MAX_TOKENS = 300
+from progress_utils import console, make_progress, make_spinner
+
+MAX_TOKENS = 512
 
 VALID_TAGS = {
     "foundation-model", "inference", "open-source", "agent", "rag",
@@ -49,10 +53,20 @@ def get_model(provider: BaseProvider) -> str:
 
 
 def _parse_json_response(text: str) -> dict:
-    text = text.strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    return json.loads(text)
+    raw = text.strip()
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError:
+        result = json.loads(repair_json(raw))
+    if isinstance(result, list):
+        if len(result) > 1:
+            console.print(f"  [WARN] _parse_json_response: lista com {len(result)} elementos, usando apenas o primeiro")
+        result = result[0] if result else {}
+    if not isinstance(result, dict):
+        raise ValueError(f"resposta não é um objeto JSON. Recebido: {raw[:120]!r}")
+    return result
 
 
 def _fallback(item: dict) -> dict:
@@ -133,7 +147,7 @@ def process_item_sync(item: dict, provider: BaseProvider) -> dict:
         }
 
     except Exception as exc:
-        print(f"  [LLM ERROR] {item['source_name']} — {item['title'][:60]}: {exc}")
+        console.print(f"  [LLM ERROR] {item['source_name']} — {item['title'][:60]}: {exc}")
         return _fallback(item)
 
 
@@ -142,7 +156,7 @@ def process_all_async(
 ) -> tuple[list[dict], int, int, int]:
     """Anthropic Batch API — 50% discount. Only available when provider.supports_batch."""
     if not provider.supports_batch:
-        print("  [AVISO] Batch API não disponível para este provider. Usando modo síncrono.")
+        console.print("  [AVISO] Batch API não disponível para este provider. Usando modo síncrono.")
         return process_all_sync(items, provider)
 
     if not items:
@@ -151,9 +165,7 @@ def process_all_async(
     client = provider.client
     model = get_model(provider)
 
-    print("  Preparando Batch API para 50% de desconto...")
     requests = []
-
     for i, item in enumerate(items):
         requests.append({
             "custom_id": str(i),
@@ -165,29 +177,27 @@ def process_all_async(
             }
         })
 
-    print(f"  Enviando batch com {len(requests)} itens para a Anthropic...")
     batch = client.messages.batches.create(requests=requests)
-
-    print(f"  Lote criado (ID: {batch.id}). Aguardando processamento...")
 
     wait_time = 10
     max_wait_time = 60
 
-    while True:
-        status = client.messages.batches.retrieve(batch.id)
-        if status.processing_status == "ended":
-            break
-        elif status.processing_status in ["canceled", "canceling", "expired"]:
-            print(f"  [ERRO] Batch cancelado ou expirado. Status: {status.processing_status}")
-            return [_fallback(item) for item in items], 0, 0, 0
+    with make_spinner() as progress:
+        task = progress.add_task(f"Batch API — aguardando ({len(requests)} itens)")
+        progress.console.print(f"  Batch criado: [dim]{batch.id}[/dim]")
+        while True:
+            status = client.messages.batches.retrieve(batch.id)
+            if status.processing_status == "ended":
+                break
+            elif status.processing_status in ["canceled", "canceling", "expired"]:
+                progress.console.print(f"  [ERRO] Batch cancelado ou expirado. Status: {status.processing_status}")
+                return [_fallback(item) for item in items], 0, 0, 0
 
-        print(f"  Processando... (aguardando {wait_time}s)")
-        time.sleep(wait_time)
+            progress.update(task, description=f"Batch API — aguardando {wait_time}s ({len(requests)} itens)")
+            time.sleep(wait_time)
 
-        if wait_time < max_wait_time:
-            wait_time += 10
-
-    print("  Batch concluído! Baixando resultados... [◈]")
+            if wait_time < max_wait_time:
+                wait_time += 10
     results = list(client.messages.batches.results(batch.id))
 
     enriched: list[dict] = []
@@ -218,10 +228,10 @@ def process_all_async(
                     "tokens_cache_read": 0,
                 })
             except Exception as exc:
-                print(f"  [LLM ERROR] {item['source_name']} — Erro no parsing: {exc}")
+                console.print(f"  [LLM ERROR] {item['source_name']} — Erro no parsing: {exc}")
                 enriched.append(_fallback(item))
         else:
-            print(f"  [LLM ERROR] {item['source_name']} — Falha na API: {getattr(res, 'result', 'Desconhecido')}")
+            console.print(f"  [LLM ERROR] {item['source_name']} — Falha na API: {getattr(res, 'result', 'Desconhecido')}")
             enriched.append(_fallback(item))
 
     return enriched, total_input, total_output, total_cache
@@ -233,14 +243,15 @@ def process_all_sync(
     enriched: list[dict] = []
     total_input = total_output = total_cache = 0
 
-    print("  Usando modo Síncrono (Rápido) [◈]")
-    for i, item in enumerate(items, 1):
-        print(f"  [{i}/{len(items)}] {item['source_name']}: {item['title'][:60]}")
-        result = process_item_sync(item, provider)
-        enriched.append(result)
-        total_input += result["tokens_input"]
-        total_output += result["tokens_output"]
-        total_cache += result["tokens_cache_read"]
+    with make_progress() as progress:
+        task = progress.add_task("Processando com LLM", total=len(items))
+        for item in items:
+            result = process_item_sync(item, provider)
+            enriched.append(result)
+            total_input += result["tokens_input"]
+            total_output += result["tokens_output"]
+            total_cache += result["tokens_cache_read"]
+            progress.advance(task)
 
     return enriched, total_input, total_output, total_cache
 

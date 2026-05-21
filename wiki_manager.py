@@ -6,6 +6,8 @@ import subprocess
 from datetime import date
 from pathlib import Path
 
+from progress_utils import console, make_progress, make_spinner
+
 
 def get_vault_path() -> Path:
     vault_dir = os.getenv("OUTPUT_DIR", "./output")
@@ -59,43 +61,45 @@ def _run_claude(prompt: str, vault_path: Path, timeout: int = 600) -> int:
         )
         return result.returncode
     except subprocess.TimeoutExpired:
-        print(f"  [ERRO] Timeout: claude não respondeu em {timeout // 60} minutos.")
+        console.print(f"  [ERRO] Timeout: claude não respondeu em {timeout // 60} minutos.")
         return 1
 
 
 def run_ingest(file_path: str | None = None) -> None:
     vault_path = get_vault_path()
     today = date.today().isoformat()
-    print(f"  [WIKI] Vault: {vault_path}")
+    console.print(f"  [WIKI] Vault: {vault_path}")
 
     if file_path:
         target = Path(file_path)
         if not target.is_absolute():
             target = vault_path / "raw" / file_path
         if not target.exists():
-            print(f"  [ERRO] Arquivo não encontrado: {file_path}")
+            console.print(f"  [ERRO] Arquivo não encontrado: {file_path}")
             return
         files_to_process = [target]
     else:
-        print("  [WIKI] Buscando arquivos raw não processados...")
+        console.print("  [WIKI] Buscando arquivos raw não processados...")
         files_to_process = get_unprocessed_raw_files(vault_path)
         if not files_to_process:
-            print("  [WIKI] Nenhum arquivo novo. A Wiki está atualizada!")
+            console.print("  [WIKI] Nenhum arquivo novo. A Wiki está atualizada!")
             return
 
-    print(f"  [WIKI] {len(files_to_process)} arquivo(s) na fila:")
+    console.print(f"  [WIKI] {len(files_to_process)} arquivo(s) na fila:")
     for f in files_to_process:
-        print(f"    - {f.name}")
-    print()
+        console.print(f"    - {f.name}")
+    console.print()
 
-    for i, raw_file in enumerate(files_to_process, 1):
-        try:
-            rel_path = raw_file.relative_to(vault_path)
-        except ValueError:
-            rel_path = raw_file
-        print(f"  [{i}/{len(files_to_process)}] Ingerindo: {raw_file.name}")
+    with make_progress() as progress:
+        task = progress.add_task("Ingerindo arquivos", total=len(files_to_process))
+        for raw_file in files_to_process:
+            try:
+                rel_path = raw_file.relative_to(vault_path)
+            except ValueError:
+                rel_path = raw_file
+            progress.console.print(f"  Ingerindo: {raw_file.name}")
 
-        prompt = f"""\
+            prompt = f"""\
 Você está operando no vault de Obsidian em {vault_path}.
 
 Siga EXATAMENTE as instruções do CLAUDE.md deste vault para realizar o workflow INGEST do arquivo `{rel_path}`.
@@ -116,16 +120,17 @@ IMPORTANTE: Processo automatizado. NÃO pause para fazer perguntas. Execute o wo
 Ao terminar, exiba um resumo compacto: páginas criadas, páginas atualizadas, e os 2-3 achados mais importantes.
 """
 
-        returncode = _run_claude(prompt, vault_path)
-        if returncode != 0:
-            print(f"  [ERRO] claude saiu com código {returncode} para {raw_file.name}")
-        print()
+            returncode = _run_claude(prompt, vault_path)
+            if returncode != 0:
+                progress.console.print(f"  [ERRO] claude saiu com código {returncode} para {raw_file.name}")
+            progress.advance(task)
+            progress.console.print()
 
 
 def run_lint() -> None:
     vault_path = get_vault_path()
     today = date.today().isoformat()
-    print(f"  [WIKI] Iniciando LINT no Vault: {vault_path}")
+    console.print(f"  [WIKI] Iniciando LINT no Vault: {vault_path}")
 
     prompt = f"""\
 Você está operando no vault de Obsidian em {vault_path}.
@@ -150,17 +155,20 @@ IMPORTANTE: Processo automatizado. Execute o lint completo autonomamente:
 Exiba um resumo final: N issues encontrados (H high, M medium, L low), N corrigidos.
 """
 
-    returncode = _run_claude(prompt, vault_path)
+    with make_spinner() as progress:
+        progress.add_task("Auditando vault (lint)")
+        returncode = _run_claude(prompt, vault_path)
+
     if returncode != 0:
-        print(f"  [ERRO] claude saiu com código {returncode}")
+        console.print(f"  [ERRO] claude saiu com código {returncode}")
 
 
 def run_query(question: str) -> None:
     vault_path = get_vault_path()
     today = date.today().isoformat()
-    print(f"  [WIKI] Query no Vault: {vault_path}")
-    print(f"  [PERGUNTA] {question}")
-    print()
+    console.print(f"  [WIKI] Query no Vault: {vault_path}")
+    console.print(f"  [PERGUNTA] {question}")
+    console.print()
 
     prompt = f"""\
 Você está operando no vault de Obsidian em {vault_path}.
@@ -182,4 +190,4 @@ Exiba a resposta completa com citações.
 
     returncode = _run_claude(prompt, vault_path)
     if returncode != 0:
-        print(f"  [ERRO] claude saiu com código {returncode}")
+        console.print(f"  [ERRO] claude saiu com código {returncode}")
