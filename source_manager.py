@@ -8,6 +8,8 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
+from json_repair import repair_json
+
 import httpx
 from bs4 import BeautifulSoup
 
@@ -323,7 +325,6 @@ def _parse_suggestions(text: str) -> list[dict]:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
         try:
-            from json_repair import repair_json  # noqa: PLC0415
             parsed = json.loads(repair_json(raw))
         except Exception:
             return []

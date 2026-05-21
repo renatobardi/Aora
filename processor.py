@@ -61,6 +61,8 @@ def _parse_json_response(text: str) -> dict:
     except json.JSONDecodeError:
         result = json.loads(repair_json(raw))
     if isinstance(result, list):
+        if len(result) > 1:
+            console.print(f"  [WARN] _parse_json_response: lista com {len(result)} elementos, usando apenas o primeiro")
         result = result[0] if result else {}
     if not isinstance(result, dict):
         raise ValueError(f"resposta não é um objeto JSON. Recebido: {raw[:120]!r}")
@@ -182,6 +184,7 @@ def process_all_async(
 
     with make_spinner() as progress:
         task = progress.add_task(f"Batch API — aguardando ({len(requests)} itens)")
+        progress.console.print(f"  Batch criado: [dim]{batch.id}[/dim]")
         while True:
             status = client.messages.batches.retrieve(batch.id)
             if status.processing_status == "ended":

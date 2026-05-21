@@ -45,7 +45,3 @@ def ok_line(name: str, count: int) -> str:
 
 def warn_line(name: str, reason: str) -> str:
     return f"[yellow]  \\[WARN] {escape(name)}: {escape(reason)}[/yellow]"
-
-
-def err_line(name: str, reason: str) -> str:
-    return f"[red]  \\[NOK]  {escape(name)}: {escape(reason)}[/red]"
