@@ -105,7 +105,7 @@ def split_digest_by_category(path: Path) -> list[tuple[str, str]]:
 # Vault IO is confined to fixed filenames under OUTPUT_DIR (operator config).
 # This is a local CLI with no web input, so SonarCloud's S2083 taint flags
 # (env/file-content treated as attacker-controlled) are false positives here;
-# the IO is centralised in these two helpers carrying the NOSONAR suppression.
+# the IO is centralised in these two helpers carrying the suppression directive.
 def _read_text(path: Path) -> str:
     return path.read_text()  # NOSONAR
 
