@@ -153,11 +153,14 @@ def _print_stream_event(line: str, vault_path: Path) -> None:
     try:
         ev = json.loads(line)
     except json.JSONDecodeError:
+        # Non-JSON line (e.g. a stderr warning/traceback merged into stdout).
+        # Surface it truncated so cron logs stay diagnosable.
+        console.print(f"    [dim]{escape(line[:200])}[/dim]")
         return
 
     etype = ev.get("type")
     if etype == "assistant":
-        for block in ev.get("message", {}).get("content", []):
+        for block in ev.get("message", {}).get("content") or []:
             bt = block.get("type")
             if bt == "tool_use":
                 name = str(block.get("name", "?"))
@@ -180,8 +183,13 @@ def _print_stream_event(line: str, vault_path: Path) -> None:
                 if txt:
                     snippet = txt.replace("\n", " ")[:90]
                     console.print(f"    [dim]· {escape(snippet)}[/dim]")
-    elif etype == "result" and ev.get("is_error"):
-        console.print("    [red]claude retornou erro neste passo.[/red]")
+    elif etype == "result":
+        if ev.get("is_error"):
+            console.print("    [red]claude retornou erro neste passo.[/red]")
+        else:
+            dur, turns = ev.get("duration_ms"), ev.get("num_turns")
+            if dur is not None and turns is not None:
+                console.print(f"    [dim]✓ {turns} turnos, {dur // 1000}s[/dim]")
 
 
 def _run_claude(
