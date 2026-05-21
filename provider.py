@@ -79,6 +79,10 @@ class GoogleProvider(BaseProvider):
             config=types.GenerateContentConfig(
                 system_instruction=system,
                 max_output_tokens=max_tokens,
+                # Thinking tokens contam contra max_output_tokens; sem isto o
+                # raciocínio consome o budget e trunca o JSON. (Modelos -pro
+                # exigem budget mínimo >0 e não suportam desligar via 0.)
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
         meta = response.usage_metadata

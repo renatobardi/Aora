@@ -2,6 +2,7 @@
 seen_ids.json
 .cache_*.json
 feed_errors.log
+source_health.json
 output/
 __pycache__/
 *.pyc
